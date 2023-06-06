@@ -1,113 +1,176 @@
-import Mathlib.Tactic
-import Mathlib.Order.Basic
-import Mathlib.Data.Nat.Basic
+import Leansubst.Defs
+import Leansubst.Renaming
 
-namespace Subst
+namespace Leansubst.Subst
 
--- The following definitions generalise over signatures (type of syntax tree nodes).
-variable (σ : Type)
+variable {σ : Type}
 
-/-- Abstract syntax tree using de Bruijn indices. -/
-inductive Expr where
-  | var    : Nat →           Expr -- De Bruijn index.
-  | binder : Expr →          Expr -- Marker for binder presence.
-  | node   : σ → List Expr → Expr -- Tree node.
--- Nested inductive types (e.g. the `List Expr` here) are a special case of mutual inductive types.
+/-- Extensional equivalence of substitutions. -/
+def eqv (s : Subst σ) (t : Subst σ) : Prop :=
+  ∀ i, s.get i = t.get i
 
-mutual
-/-- Simultaneous substitions are known to greatly simplify proofs (or do they...?)
-    See: https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Autosubst_-Reasoning.pdf -/
-inductive Subst where
-  | id    :                 Subst
-  | shift :                 Subst
-  | cons  : ES → Subst →    Subst
-  | then  : Subst → Subst → Subst
+theorem eqv.refl (s : Subst σ) : eqv s s :=
+  fun _ => .refl _
 
-/-- Explicit substitutions are required since termination of rewriting is nontrivial. -/
-inductive ES where
-  | subst  : ES → Subst →  ES -- Substitution.
-  | var    : Nat →         ES
-  | binder : ES →          ES
-  | node   : σ → List ES → ES
-end
+theorem eqv.symm {s t : Subst σ} : eqv s t → eqv t s :=
+  fun h i => .symm (h i)
 
-/-- Deterministic small-step rewriting rules. Returns strictly reduced `ES` or normal form `Expr`.
-    See: https://www.hpl.hp.com/techreports/Compaq-DEC/SRC-RR-54.pdf (page 11) -/
-def rewrite : ES σ → ES σ ⊕ Expr σ
-  | .subst (.subst e s)   t                     => .inl $ .subst e (.then s t)
-  | .subst (.var i)       .id                   => .inl $ .var i
-  | .subst (.var i)       .shift                => .inl $ .var (.succ i)
-  | .subst (.var 0)       (.cons e _)           => .inl $ e
-  | .subst (.var (i + 1)) (.cons _ s)           => .inl $ .subst (.var i) s
-  | .subst (.var i)       (.then .id s)         => .inl $ .subst (.var i) s
-  | .subst (.var i)       (.then .shift s)      => .inl $ .subst (.var (i + 1)) s
-  | .subst (.var i)       (.then (.cons h s) t) => .inl $ .subst (.var i) (.cons (.subst h t) (.then s t))
-  | .subst (.var i)       (.then (.then s t) u) => .inl $ .subst (.var i) (.then s (.then t u))
-  | .subst (.binder e)    s                     => .inl $ .binder (.subst e (.cons (.var 0) (.then s .shift)))
-  | .subst (.node n es)   s                     => .inl $ .node n (es.map $ fun e => .subst e s)
-  | .var i     => .inr $ .var i
-  | .binder e  =>
-    match rewrite e with
-      | .inl e' => .inl $ .binder e'
-      | .inr e' => .inr $ .binder e'
-  | .node n es =>
-    match rewrites es with
-      | .inl es' => .inl $ .node n es'
-      | .inr es' => .inr $ .node n es'
-where
-  rewrites : List (ES σ) → List (ES σ) ⊕ List (Expr σ)
-    | []       => .inr []
-    | e :: es  =>
-      match rewrite e with
-        | .inl e' => .inl $ e' :: es
-        | .inr e' =>
-          match rewrites es with
-            | .inl es' => .inl $ e :: es'
-            | .inr es' => .inr $ e' :: es'
-termination_by
-  rewrite e   => sizeOf e
-  rewrites es => sizeOf es
+theorem eqv.trans {s t u : Subst σ} : eqv s t → eqv t u → eqv s u :=
+  fun h₁ h₂ i => .trans (h₁ i) (h₂ i)
 
-/-
-/-- Small-step reduction reduces measure. -/
-theorem rewrite_normalises : ∀ (es : ES),
-    (∃ n, rewrite es = .norm n) ∨
-    size (rewrite es) < size es := by
-  intros es
-  induction es <;> (try left; eq_refl) <;> dsimp only [rewrite, ES.size, Subst.size]
-  case sub e s ih₁ =>
-    -- rcases ih₁ with ⟨n, ih₁⟩ | ih₁
-    induction e <;> dsimp only [rewrite, ES.size, Subst.size]
-    case sub e t ih₂ =>
-      sorry
+instance substSetoid : Setoid (Subst σ) where
+  r     := eqv
+  iseqv := ⟨eqv.refl, eqv.symm, eqv.trans⟩
 
-/-- Multi-step reduction. -/
-def ES.apply : ES → ES :=
-  fun 
+def Subst' (σ : Type) : Type :=
+  Quotient (@substSetoid σ)
 
-/-- Apply simultaneous substitution. -/
-def Expr.apply : Expr → Subst → Expr :=
-  fun 
+scoped notation:arg "⟦" a "⟧" => Quotient.mk _ a
 
-/-- Apply simultaneous substitution. -/
-def Expr.apply : Expr → Subst → Expr
-  | .sort s,      _         => .sort s
-  | .var i,       .id       => .var i
-  | .var i,       .shift    => .var (.succ v)
-  | .var 0,       .cons e _ => e
-  | .var (v + 1), .cons e t => Expr.apply (.var i) t
-  | .var i,       .then s t => Expr.apply (Expr.apply (.var i) s) t
-  | .app l r,     s         => .app (Expr.apply l s) (Expr.apply r s)
-  | .lam t e,     s         => .lam (Expr.apply t s) (Expr.apply e (.cons (.var 0) (.then s .shift)))
-  | .pi t₁ t₂,    s         => .pi (Expr.apply t₁ s) (Expr.apply t₂ (.cons (.var 0) (.then s .shift)))
-termination_by
-  Expr.apply e s => aux e s
+def shift' (σ) : Nat → Subst' σ :=
+  fun n => ⟦shift n⟧
 
-scoped notation "↟"             => Subst.shift
-scoped notation e:80 " ⬝ " f:79 => Subst.cons e f
+def cons' : Expr σ → Subst' σ → Subst' σ :=
+  fun e => Quotient.lift (fun s => ⟦cons e s⟧) $ by
+    intros s t h; apply Quotient.sound; intros i
+    cases i with
+    | zero => eq_refl
+    | succ i => exact h i
 
-scoped notation e " ⟦" n:80 " ↦ " e':79 "⟧" => Subst.subst e n e'
-scoped notation e " ⟦" n:80 " ↟ " m:79 "⟧"  => Subst.shift e n m
--/
+def id' (σ) : Subst' σ :=
+  ⟦id σ⟧
 
-end Subst
+def get' : Subst' σ → Nat → Expr σ :=
+  Quotient.lift get $
+    fun _ _ h => funext $ fun i => h i
+
+/-- Definition of coercion (preserves action). -/
+theorem from_renaming_def (σ) (r : Renaming) : ∀ i, (fromRenaming σ r).get i = .var (r.get i) := by
+  intros i
+  induction r generalizing i with
+  | shift n => simp [fromRenaming, get, Renaming.get]
+  | cons h t ih =>
+    cases i with
+    | zero => simp [fromRenaming, get, Renaming.get]
+    | succ i => simp [fromRenaming, get, Renaming.get, ih]
+
+/-- Definition of composition with renaming. -/
+theorem compr_def (s : Subst σ) (t : Renaming) : ∀ i, (compr s t).get i = t.apply (s.get i) := by
+  intros i
+  induction s generalizing t i with
+  | shift n₁ => simp [Renaming.get, Renaming.comp_def, Renaming.apply, get, compr, from_renaming_def]
+  | cons h s ih =>
+    cases i with
+    | zero => simp [get, comp, ih]
+    | succ i => simp [get, comp, ih]
+
+def compr' : Subst' σ → Renaming.Renaming' → Subst' σ :=
+  Quotient.lift₂ (fun s t => ⟦compr s t⟧) $ by
+    intros s₁ t₁ s₂ t₂ h₁ h₂
+    apply Quotient.sound
+    intros i
+    simp [compr_def]
+    suffices h : Renaming.apply' ⟦t₁⟧ (get' ⟦s₁⟧ i) = Renaming.apply' ⟦t₂⟧ (get' ⟦s₂⟧ i) by exact h
+    suffices h : ⟦s₁⟧ = ⟦s₂⟧ ∧ ⟦t₁⟧ = ⟦t₂⟧ by rw [h.left, h.right]
+    exact ⟨Quotient.sound h₁, Quotient.sound h₂⟩
+
+theorem apply_var_eq_get (s : Subst σ) : ∀ i, s.apply (.var i) = s.get i := by
+  intros i
+  induction s generalizing i with
+  | shift n => simp [apply, get]
+  | cons h t ih =>
+    cases i with
+    | zero => simp [apply, get]
+    | succ i => simp [apply, get, ih]
+
+def apply' : Subst' σ → Expr σ → Expr σ :=
+  Quotient.lift apply $ by
+    intros s t h; apply funext; intros e; revert s t
+    -- Induction on `e`
+    apply @Expr.recOn _
+      (fun e => ∀ s t, s ≈ t → apply s e = apply t e)
+      (fun es => es.foldr (fun e etc => (∀ s t, s ≈ t → apply s e = apply t e) ∧ etc) True)
+      <;> intros <;> try trivial
+    case var i s t h => simp [apply_var_eq_get, h i]
+    case binder e' ih s t h =>
+      simp [apply]
+      apply ih
+      apply Quotient.exact
+      suffices h : cons' (.var 0) (compr' ⟦s⟧ ⟦.shift 1⟧) = cons' (.var 0) (compr' ⟦t⟧ ⟦.shift 1⟧) by exact h
+      suffices h : ⟦s⟧ = ⟦t⟧ by rw [h]
+      exact Quotient.sound h
+    case node n es ih s t h =>
+      simp [apply]
+      induction es with
+      | nil => simp [apply.applies]
+      | cons h' t' ih' =>
+        simp [List.foldr] at ih
+        simp [apply.applies]
+        exact ⟨ih.left _ _ h, ih' ih.right⟩
+
+/-- Definition of composition. -/
+theorem comp_def (s t : Subst σ) : ∀ i, (comp s t).get i = t.apply (s.get i) := by
+  intros i
+  induction s generalizing t i with
+  | shift n =>
+    induction t generalizing n with
+    | shift m => simp [get, comp, apply_var_eq_get]; rw [Nat.add_assoc]
+    | cons h t ih =>
+      cases n with
+      | zero => simp [get, comp, apply_var_eq_get]
+      | succ n => simp [get, comp, apply_var_eq_get, ih]
+  | cons h s ih =>
+    cases i with
+    | zero => simp [get, comp, ih]
+    | succ i => simp [get, comp, ih]
+
+theorem cons_zero_compr_shift_eqv_id : cons (.var 0) (compr (id σ) (.shift 1)) ≈ id σ := by
+  intros i
+  cases i with
+  | zero => simp [get]
+  | succ i => simp [get]
+
+theorem id_get (i : Nat) : (id σ).get i = .var i := rfl
+
+theorem apply_id (e : Expr σ) : (id σ).apply e = e := by
+  -- Induction on `e`
+  apply @Expr.recOn _
+    (fun e => apply (id σ) e = e)
+    (fun es => es.foldr (fun e etc => apply (id σ) e = e ∧ etc) True)
+    <;> intros <;> try trivial
+  case var i => simp [apply_var_eq_get, get]
+  case binder e' ih =>
+    simp [apply]
+    suffices h : apply' ⟦cons (Expr.var 0) (compr (id σ) (Renaming.shift 1))⟧ e' = e' by exact h
+    suffices h : ⟦cons (Expr.var 0) (compr (id σ) (Renaming.shift 1))⟧ = id' σ by rw [h]; exact ih
+    exact Quotient.sound cons_zero_compr_shift_eqv_id
+  case node n es ih =>
+    simp [apply]
+    induction es with
+    | nil => simp [apply.applies]
+    | cons h' t' ih' =>
+      simp [List.foldr] at ih
+      simp [apply.applies]
+      exact ⟨ih.left, ih' ih.right⟩
+
+theorem id_comp (r : Subst σ) : (id σ).comp r ≈ r := by
+  intros i
+  cases r with
+  | shift j => simp [get]
+  | cons j r => eq_refl
+
+theorem comp_id (r : Subst σ) : r.comp (id σ) ≈ r := by
+  induction r with
+  | shift j => intros i; simp [get, id, comp]
+  | cons j r ih =>
+    intros i
+    simp [comp, apply_id]
+    suffices h : cons j (comp r (shift 0)) ≈ cons j r by exact h i
+    apply Quotient.exact
+    suffices h : cons' j ⟦comp r (shift 0)⟧ = cons' j ⟦r⟧ by exact h
+    suffices h : ⟦comp r (shift 0)⟧ = ⟦r⟧ by rw [h]
+    exact Quotient.sound ih
+
+
+
+end Leansubst.Subst

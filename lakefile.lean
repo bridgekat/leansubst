@@ -11,8 +11,3 @@ package «leansubst» {
 lean_lib «Leansubst» {
   -- add library configuration options here
 }
-
-@[default_target]
-lean_exe «leansubst» {
-  root := `Main
-}
