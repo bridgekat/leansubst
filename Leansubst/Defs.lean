@@ -40,21 +40,12 @@ def get : Subst' σ → Nat → Expr σ
   | cons _ t, i + 1 => get t i
 
 /-- Extensional equivalence of substitutions. -/
-def eqv (s : Subst' σ) (t : Subst' σ) : Prop :=
-  ∀ i, s.get i = t.get i
-
-theorem eqv.refl (s : Subst' σ) : eqv s s :=
-  fun _ => .refl _
-
-theorem eqv.symm {s t : Subst' σ} : eqv s t → eqv t s :=
-  fun h i => .symm (h i)
-
-theorem eqv.trans {s t u : Subst' σ} : eqv s t → eqv t u → eqv s u :=
-  fun h₁ h₂ i => .trans (h₁ i) (h₂ i)
-
 instance setoid (σ) : Setoid (Subst' σ) where
-  r     := eqv
-  iseqv := ⟨eqv.refl, eqv.symm, eqv.trans⟩
+  r     := fun s t => ∀ i, s.get i = t.get i
+  iseqv :=
+    { refl  := fun _ _ => .refl _
+      symm  := fun h i => .symm (h i)
+      trans := fun h₁ h₂ i => .trans (h₁ i) (h₂ i) }
 
 /-- The identity substitution. -/
 def id (σ) : Subst' σ :=
@@ -147,7 +138,7 @@ def Subst (σ : Type) : Type :=
 
 namespace Subst
 
-scoped notation:arg "⟦" a "⟧" => Quotient.mk _ a
+local notation:arg "⟦" a "⟧" => Quotient.mk (Subst'.setoid _) a
 
 /-- Evaluate substitution at a given index. -/
 def get : Subst σ → Nat → Expr σ :=
@@ -172,8 +163,9 @@ def id (σ) : Subst σ :=
 
 /-- Composition of substitution and shift. -/
 def comps : Subst σ → Nat → Subst σ :=
-  Quotient.lift (fun s n => ⟦Subst'.comps s n⟧) $ by
-    intros s t h
+  Quotient.lift (fun s n => ⟦Subst'.comps s n⟧) respects
+where
+  respects (s t : Subst' σ) (h : s ≈ t) := by
     apply funext
     intros n
     apply Quotient.sound
@@ -182,8 +174,10 @@ def comps : Subst σ → Nat → Subst σ :=
 
 /-- Applies a substitution on a term. -/
 def apply : Subst σ → Expr σ → Expr σ :=
-  Quotient.lift Subst'.apply $ by
-    intros s t h; apply funext; intros e; revert s t
+  Quotient.lift Subst'.apply respects
+where
+  respects (s t : Subst' σ) (h : s ≈ t) : s.apply = t.apply := by
+    apply funext; intros e; revert s t
     -- Induction on `e`.
     apply @Expr.recOn _
       (fun e => ∀ s t : Subst' σ, s ≈ t → s.apply e = t.apply e)
@@ -208,8 +202,9 @@ def apply : Subst σ → Expr σ → Expr σ :=
 
 /-- Composition of substitutions. -/
 def comp : Subst σ → Subst σ → Subst σ :=
-  Quotient.lift₂ (fun s t => ⟦Subst'.comp s t⟧) $ by
-    intros s₁ t₁ s₂ t₂ h₁ h₂
+  Quotient.lift₂ (fun s t => ⟦Subst'.comp s t⟧) respects
+where
+  respects (s₁ t₁ s₂ t₂ : Subst' σ) (h₁ : s₁ ≈ s₂) (h₂ : t₁ ≈ t₂) : _ := by
     apply Quotient.sound
     intros i
     simp [Subst'.comp_def]
