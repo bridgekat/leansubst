@@ -43,15 +43,15 @@ def get : Subst' σ → Nat → Expr σ
 instance setoid (σ) : Setoid (Subst' σ) where
   r     := fun s t => ∀ i, s.get i = t.get i
   iseqv :=
-    { refl  := fun _ _ => .refl _
-      symm  := fun h i => .symm (h i)
-      trans := fun h₁ h₂ i => .trans (h₁ i) (h₂ i) }
+  { refl  := fun _ _ => .refl _
+    symm  := fun h i => .symm (h i)
+    trans := fun h₁ h₂ i => .trans (h₁ i) (h₂ i) }
 
 /-- The identity substitution. -/
 def id (σ) : Subst' σ :=
   shift 0
 
-/-- Shift variables with level ≥ `n` by `m` levels. -/
+/-- Shift variables with level ≥ `n` by `m` levels (ugly bootstrapping definition). -/
 def applys : Nat → Nat → Expr σ → Expr σ
   | n, m, .var i     => if n <= i then .var (i + m) else .var i
   | n, m, .binder e  => .binder (applys (n + 1) m e)
@@ -60,7 +60,7 @@ where nested : Nat → Nat → List (Expr σ) → List (Expr σ)
   | _, _, []      => []
   | n, m, e :: es => applys n m e :: nested n m es
 
-/-- Composition of substitution and shift. -/
+/-- Composition of substitution and shift (ugly bootstrapping definition). -/
 def comps : Subst' σ → Nat → Subst' σ
   | shift n,  m => .shift (n + m)
   | cons h t, m => cons (applys 0 m h) (comps t m)
@@ -81,27 +81,15 @@ theorem comps_def (s : Subst' σ) (n : Nat) : ∀ i, (comps s n).get i = applys 
 
 /-- Applies a substitution on a term. -/
 def apply : Subst' σ → Expr σ → Expr σ
-  | shift n,  .var i       => .var (i + n)
-  | cons h _, .var 0       => h
-  | cons _ t, .var (i + 1) => apply t (.var i)
-  | s,        .binder e    => .binder (apply (cons (.var 0) (comps s 1)) e)
-  | s,        .node n es   => .node n (nested s es)
+  | s, .var i     => s.get i
+  | s, .binder e  => .binder (apply (cons (.var 0) (comps s 1)) e)
+  | s, .node n es => .node n (nested s es)
 where nested : Subst' σ → List (Expr σ) → List (Expr σ)
   | _, []      => []
   | s, e :: es => apply s e :: nested s es
 termination_by
   apply s e   => (sizeOf e, sizeOf s)
   nested s es => (sizeOf es, sizeOf s)
-
-/-- Applying a substitution on a variable is equal to `get`. -/
-theorem apply_var (s : Subst' σ) : ∀ i, s.apply (.var i) = s.get i := by
-  intros i
-  induction s generalizing i with
-  | shift n => simp only [apply, get]
-  | cons h t ih =>
-    cases i with
-    | zero => simp [apply, get]
-    | succ i => simp only [apply, get, ih]
 
 /-- Composition of substitutions. -/
 def comp : Subst' σ → Subst' σ → Subst' σ
@@ -116,11 +104,11 @@ theorem comp_def (s t : Subst' σ) : ∀ i, (comp s t).get i = t.apply (s.get i)
   induction s generalizing t i with
   | shift n =>
     induction t generalizing n with
-    | shift m => simp only [get, comp, apply_var]; rw [Nat.add_assoc]
+    | shift m => simp only [get, comp, apply]; rw [Nat.add_assoc]
     | cons h t ih =>
       cases n with
-      | zero => simp [get, comp, apply_var]
-      | succ n => simp [get, comp, apply_var, ih]
+      | zero => simp [get, comp, apply]
+      | succ n => simp [get, comp, apply, ih]
   | cons h s ih =>
     cases i with
     | zero => simp only [get, comp, ih]
@@ -165,7 +153,7 @@ def id (σ) : Subst σ :=
 def comps : Subst σ → Nat → Subst σ :=
   Quotient.lift (fun s n => ⟦Subst'.comps s n⟧) respects
 where
-  respects (s t : Subst' σ) (h : s ≈ t) := by
+  respects (s t : Subst' σ) (h : s ≈ t) : _ := by
     apply funext
     intros n
     apply Quotient.sound
@@ -176,22 +164,21 @@ where
 def apply : Subst σ → Expr σ → Expr σ :=
   Quotient.lift Subst'.apply respects
 where
-  respects (s t : Subst' σ) (h : s ≈ t) : s.apply = t.apply := by
+  respects (s t : Subst' σ) (h : s ≈ t) : _ := by
     apply funext; intros e; revert s t
     -- Induction on `e`.
-    apply @Expr.recOn _
-      (fun e => ∀ s t : Subst' σ, s ≈ t → s.apply e = t.apply e)
-      (List.foldr (fun e etc => (∀ s t : Subst' σ, s ≈ t → s.apply e = t.apply e) ∧ etc) True)
-      <;> intros <;> try trivial
-    case var i s t h => simp only [Subst'.apply_var, h i]
-    case binder e' ih s t h =>
+    let motive := fun (e : Expr σ) => ∀ (s t : Subst' σ), s ≈ t → s e = t e
+    apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
+      <;> intros <;> (try trivial) <;> intros s t h
+    case var i => simp only [Subst'.apply, h i]
+    case binder e' ih =>
       simp [Subst'.apply]
       apply ih
       apply Quotient.exact
       suffices h : cons (.var 0) (comps ⟦s⟧ 1) = cons (.var 0) (comps ⟦t⟧ 1) by exact h
       suffices h : ⟦s⟧ = ⟦t⟧ by rw [h]
       exact Quotient.sound h
-    case node n es ih s t h =>
+    case node n es ih =>
       simp [Subst'.apply]
       induction es with
       | nil => simp only [Subst'.apply.nested]
