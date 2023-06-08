@@ -64,7 +64,10 @@ instance setoid (σ) : Setoid (Subst' σ) where
     symm  := fun h i => .symm (h i)
     trans := fun h₁ h₂ i => .trans (h₁ i) (h₂ i) }
 
-/-! Instructions for the `simp` tactic. -/
+/-!
+  Instructions for the `simp` tactic.
+-/
+
 @[simp↓ high] theorem id_expand : id σ = shift 0 := rfl
 @[simp low] theorem shift_zero : shift 0 = id σ := rfl
 @[simp high] theorem head_shift (n) : @head σ (shift n) = .var n := rfl
@@ -73,17 +76,11 @@ instance setoid (σ) : Setoid (Subst' σ) where
 @[simp low] theorem drop_one (s) : @drop σ 1 s = tail s := rfl
 
 @[simp high] theorem drop_zero (s) : @drop σ 0 s = s := rfl
-
-@[simp high]
-theorem drop_drop (n m s) : @drop σ n (drop m s) = drop (m + n) s := by
+@[simp high] theorem drop_drop (n m s) : @drop σ n (drop m s) = drop (m + n) s := by
   induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
-
-@[simp high]
-theorem drop_shift (n m) : @drop σ n (shift m) = shift (m + n) := by
+@[simp high] theorem drop_shift (n m) : @drop σ n (shift m) = shift (m + n) := by
   induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
-
-@[simp high]
-theorem drop_cons (n h t) : @drop σ (n + 1) (cons h t) = drop n t := by
+@[simp high] theorem drop_cons (n h t) : @drop σ (n + 1) (cons h t) = drop n t := by
   induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
 
 @[simp↓ high] theorem get_expand (n s) : @get σ n s = head (drop n s) := rfl
@@ -208,13 +205,16 @@ where
       suffices h : ⟦s⟧ = ⟦t⟧ by rw [h]
       exact Quotient.sound h
     case node n es ih =>
-      simp only [Subst'.apply, true_and]; congr 1
       induction es with
-      | nil => simp only [Subst'.apply.nested]
+      | nil => simp only [Subst'.apply, Subst'.apply.nested]
       | cons h' t' ih' =>
-        simp only [List.foldr] at ih
-        simp only [Subst'.apply.nested]; congr 1
-        exacts [ih.left _ _ h, ih' ih.right]
+        rw [List.foldr] at ih
+        simp only [Subst'.apply, Subst'.apply.nested]
+        congr 2
+        . exact ih.left _ _ h
+        . specialize ih' ih.right
+          simp only [Subst'.apply] at ih'
+          injection ih'
 
 /-- Composition of substitutions. -/
 def comp : Subst σ → Subst σ → Subst σ :=
