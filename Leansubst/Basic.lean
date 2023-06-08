@@ -5,318 +5,81 @@ import Leansubst.Defs
   This file contains equational lemmas related to `Expr`, `Subst`, `ES` and `SE`.
 -/
 
-namespace Leansubst.Subst'
+namespace Leansubst.Subst
 
 variable {σ : Type}
-
-local notation:arg "⟦" a "⟧" => Quotient.mk (Subst'.setoid σ) a
-
-variable (s t u : Subst' σ)
-variable (i j k : Nat) (x : σ)
-variable (e : Expr σ) (es : List (Expr σ))
-
-/-- Extensionally equal substitutions have the same effect. -/
-theorem eqv_apply : s ≈ t → s e = t e := by
-  intros h
-  rw [Subst.apply.respects s t h]
-
-/-- Auxiliary function. -/
-def up : Nat → Subst' σ → Subst' σ
-  | 0,     s => s
-  | i + 1, s => cons (.var 0) (comp (up i s) (shift 1))
-
-/-- Accessing higher entries of `up`. -/
-theorem up_get_high : get (j + k) (up j s) = apply (shift j) (get k s) := by
-  have ⟨d, hd⟩ := Nat.le.dest h; clear h
-  induction j generalizing k d with
-  | zero => rfl
-  | succ j ih =>
-    rw [up]
-    cases k with
-    | zero => cases d <;> contradiction
-    | succ k =>
-      rw [get, comp_def]
-      rw [Nat.succ_add] at hd; injection hd with hd
-      rw [ih _ _ hd, apply, get, Nat.succ_add]
-
-/-- Accessing lower entries of `up`. -/
-theorem up_get_low (h : k < j) : get k (up j s) = .var k := by
-  induction j generalizing k with
-  | zero => intros; contradiction
-  | succ j ih =>
-    cases Nat.eq_or_lt_of_le (Nat.le_of_lt_succ h) with
-    | inl h' =>
-      subst h'; rw [up]
-      cases k with
-      | zero => rfl
-      | succ k => rw [get, comp_def, ih k (Nat.lt_succ_self _), apply, get]
-    | inr h' =>
-      rw [up]
-      cases k with
-      | zero => rfl
-      | succ k =>
-        specialize ih _ (Nat.le_of_lt_succ h)
-        rw [get, comp_def, ih, apply, get]
-
-/-
-/-- Lemma: `applys` agrees with `apply up shift` on variables. -/
-theorem applys_var : applys j i (.var k) = apply (up j (@shift σ i)) (.var k) := by
-  induction j generalizing k with
-  | zero =>
-    rw [up, applys]
-    split
-    case inl _ => rw [apply, get]
-    case inr h => exact (h (Nat.zero_le _)).elim
-  | succ j ih =>
-    simp only [up, apply, applys] at *
-    cases k with
-    | zero => (split <;> try contradiction); rfl
-    | succ k =>
-      simp only [get, comp_def, ← ih]
-      split <;> rename_i h
-      rotate_right; have h : ¬j ≤ k := fun h' => (h (Nat.succ_le_succ h')).elim
-      rotate_right; have h := Nat.le_of_succ_le_succ h
-      all_goals (split <;> try contradiction)
-      case inl => rw [apply, get, Nat.succ_add]
-      case inr => rw [apply, get]
-
-/-- Lemma: `comps` agrees with `comp shift` for LHS in the form of `up shift`.  -/
-theorem comps_eqv_comp_special : comps (up j (shift i)) 1 ≈ comp (up j (shift i)) (@shift σ 1) := by
-  intros k
-  rw [comp_def, comps_def]
-  cases Nat.lt_sum_ge k j with
-  | inl h =>
-    rw [up_get_low _ _ _ h, apply, applys]
-    split
-    case inl _ => rfl
-    case inr h => exact (h (Nat.zero_le _)).elim
-  | inr h =>
-    rw [up_shift_get_high _ _ _ h, apply, applys]
-    split
-    case inl _ => rfl
-    case inr h => exact (h (Nat.zero_le _)).elim
-
-/-- Now we have that `applys` actually agrees with `apply up shift`. -/
-theorem applys_def : applys j i e = apply (up j (shift i)) e := by
-  revert j
-  -- Induction on `e`.
-  let motive := fun (e : Expr σ) => ∀ j, applys j i e = apply (up j (shift i)) e
-  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
-    <;> intros <;> (try trivial) <;> intros j
-  case var k => exact applys_var _ _ _
-  case binder e ih =>
-    rw [applys, apply, ih, up, eqv_apply]
-    intros k
-    cases k with
-    | zero => rfl
-    | succ => rw [get, get, comps_eqv_comp_special]
-  case node x es ih =>
-    induction es with
-    | nil => rw [applys, apply, apply.nested]; rfl
-    | cons h' t' ih' =>
-      rw [List.foldr] at ih
-      rw [applys, applys.nested, apply, apply.nested]
-      congr 2
-      . exact ih.left _
-      . specialize ih' ih.right
-        rw [applys, apply] at ih'
-        injection ih'
-
-/-- Now we have that `comps` actually agrees with `comp shift`. -/
-theorem comps_eqv_comp : comps s i ≈ comp s (shift i) := by
-  intros k
-  rw [comp_def, comps_def, applys_def, up]
-
-/-- Applying the identity substitution. -/
-theorem id_apply : (id σ) e = e := by
-  -- Induction on `e`.
-  apply @Expr.recOn _ (fun e => (id σ) e = e) (List.foldr (fun e etc => (id σ) e = e ∧ etc) True)
-    <;> intros <;> (try trivial)
-  case var i => rw [id, apply]; rfl
-  case binder e ih =>
-    conv => rhs; rw [← ih]
-    rw [id, apply, comps, eqv_apply]
-    intros k
-    cases k <;> rfl
-  case node x es ih =>
-    induction es with
-    | nil => rw [id, apply, apply.nested]
-    | cons h' t' ih' =>
-      rw [List.foldr] at ih
-      rw [apply, apply.nested]
-      congr 2
-      . exact ih.left
-      . specialize ih' ih.right
-        rw [id, apply] at ih'
-        injection ih'
--/
-
-theorem idk₁ : (shift 1) ((shift i) e) = (shift (Nat.succ i)) e := by
-  revert i
-  -- Induction on `e`.
-  let motive := fun (e : Expr σ) => ∀ i, (shift 1) ((shift i) e) = (shift (Nat.succ i)) e
-  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
-    <;> intros <;> (try trivial) <;> intros i
-  case var j => simp [get, apply]; rw [Nat.one_add, Nat.succ_add]
-  case binder e ih => simp [apply]; sorry
-  case node x es ih => sorry
-
-/-- Accessing higher entries of `up`. -/
-/-
-theorem up_get_high : (up j s).get (j + k) = apply (shift j) (s.get k) := by
-  induction j generalizing k with
-  | zero => rw [up, Nat.zero_add, ← id, id_apply]
-  | succ j ih =>
-    rw [up, Nat.succ_add, get, comp_def, ih]
-    sorry
--/
-
-theorem up_apply_up_shift_apply : (up (i + 1) s) ((up i (shift 1)) e) = (up i (shift 1)) ((up i s) e) := by
-  revert s
-  -- Induction on `e`.
-  let motive := fun (e : Expr σ) => ∀ i s, (up (i + 1) s) ((up i (shift 1)) e) = (up i (shift 1)) ((up i s) e)
-  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
-    <;> intros <;> (try trivial) <;> intros i s
-  case var j =>
-    simp [apply]
-    cases Nat.lt_sum_ge j i with
-    | inl h => have h' := Nat.lt_succ_of_lt h; simp only [up_get_low _ _ _ h, up_get_low _ _ _ h', apply]
-    | inr h =>
-      have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
-      rw [up_get_high _ _ _]
-      simp [apply, up]
-      rw [Nat.add_comm 1 d, ← Nat.add_assoc]
-      simp [apply, up]
-      rw [comp_def]
-      rw [up_get_high _ _ _]
-      
-      generalize h : get d s = e; clear h d s
-      induction i generalizing e with
-      | zero => rfl
-      | succ i ih =>
-        simp [apply, up] at *
-        
-
-  case binder e ih =>
-    simp only [apply]
-    congr 1
-    have h : ∀ (t : Subst' σ), cons (Expr.var 0) (comps t 1) ≈ cons (Expr.var 0) (comp t (shift 1)) := by
-      intros t k
-      cases k with
-      | zero => rfl
-      | succ => rw [get]; exact comps_eqv_comp _ _ _
-    simp only [eqv_apply _ _ _ (h _)]; clear h
-    exact ih _ _
-  case node x es ih =>
-    induction es with
-    | nil => simp only [apply, apply.nested] 
-    | cons h' t' ih' =>
-      rw [List.foldr] at ih
-      simp only [apply, apply.nested]
-      congr 2
-      . exact ih.left _ _
-      . specialize ih' ih.right
-        simp only [apply] at ih'
-        injection ih'
-
-/-
-/-- Applying composition of substitutions. -/
-theorem apply_apply : t (s e) = (comp s t) e := by
-  have h : ∀ i, (t ∘ s.get) i = (comp s t).get i := by intros k; rw [comp_def]; rfl
-  suffices h : t ∘ s = comp s t by rw [← h]; rfl
-  
-  induction t with
-  | shift i =>
-    induction s with
-    | shift j => rw [comp]; rw [Subst.apply.respects _ _ h]
-
-  -- Induction on `e`.
-  let motive := fun (e : Expr σ) => ∀ t s, t (s e) = (comp s t) e
-  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => (motive e) ∧ etc) True)
-    <;> intros <;> (try trivial) <;> intros t s
-  case var i => simp only [comp_def, apply]
-  case binder e ih =>
-    simp only [apply]
-    rw [ih, eqv_apply]
-    intros k
-    cases k with
-    | zero => simp only [get, comp_def, apply]
-    | succ k =>
-      simp only [get, comp_def, comps_def, applys_def, up]
-      have h : cons (Expr.var 0) (comps t 1) ≈ cons (Expr.var 0) (comp t (shift 1)) := by
-        intros k
-        cases k with
-        | zero => rfl
-        | succ => rw [get]; exact comps_eqv_comp _ _ _
-      rw [eqv_apply _ _ _ h]; clear h
-      exact up_apply_up_shift_apply _ 0 _
-  case node x es ih =>
-    -- TODO: make a tactic to solve this case...
-    induction es with
-    | nil => simp only [apply, apply.nested] 
-    | cons h' t' ih' =>
-      rw [List.foldr] at ih
-      simp only [apply, apply.nested]
-      congr 2
-      . exact ih.left _ _
-      . specialize ih' ih.right
-        simp only [apply] at ih'
-        injection ih'
--/
-
-theorem apply_apply : t (s e) = (comp s t) e := by
-  -- Induction on `e`.
-  let motive := fun (e : Expr σ) => ∀ t s, t (s e) = (comp s t) e
-  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => (motive e) ∧ etc) True)
-    <;> intros <;> (try trivial) <;> intros t s
-  case var i => simp only [comp_def, apply]
-  case binder e ih =>
-    simp [apply]
-    suffices h : apply (cons (.var 0) (comp t (shift 1))) (apply (cons (.var 0) (comp s (shift 1))) e) =
-                 apply (cons (.var 0) (comp (comp s t) (shift 1))) e by sorry
-    rw [ih]
-    simp [comp, apply]
-    apply eqv_apply
-    intros k
-    cases k with
-    | zero => rfl
-    | succ k =>
-      simp
-      rw [comp_def, comp_def, comp_def, comp_def]
-      exact up_apply_up_shift_apply _ 0 _
-  case node x es ih =>
-    -- TODO: make a tactic to solve this case...
-    induction es with
-    | nil => simp only [apply, apply.nested] 
-    | cons h' t' ih' =>
-      rw [List.foldr] at ih
-      simp only [apply, apply.nested]
-      congr 2
-      . exact ih.left _ _
-      . specialize ih' ih.right
-        simp only [apply] at ih'
-        injection ih'
-
-end Subst'
-
-namespace Subst
-
-variable {σ : Type}
-
-local notation:arg "⟦" a "⟧" => Quotient.mk (Subst'.setoid σ) a
-
-@[simp] theorem shift_wrap (n : Nat) : ⟦Subst'.shift n⟧ = Subst.shift σ n := rfl
-@[simp] theorem cons_wrap (e : Expr σ) (s : Subst' σ) : ⟦Subst'.cons e s⟧ = Subst.cons e ⟦s⟧ := rfl
-@[simp] theorem id_wrap : ⟦Subst'.id σ⟧ = Subst.id σ := rfl
-
-@[simp] theorem get_wrap (s : Subst' σ) (i : Nat) : Subst'.get i s = Subst.get i ⟦s⟧ := rfl
-@[simp] theorem apply_wrap (s : Subst' σ) : Subst'.apply s = Subst.apply ⟦s⟧ := rfl
-@[simp] theorem comps_wrap (s : Subst' σ) (n : Nat) : ⟦Subst'.comps s n⟧ = Subst.comps ⟦s⟧ n := rfl
-@[simp] theorem comp_wrap (s t : Subst' σ) : ⟦Subst'.comp s t⟧ = Subst.comp ⟦s⟧ ⟦t⟧ := rfl
 
 variable (s t u : Subst σ)
 variable (i j k : Nat) (x : σ)
 variable (e : Expr σ) (es : List (Expr σ))
+
+/-- `applyr` agrees with `apply` for renamings. -/
+@[simp high]
+theorem applyr_def (r) : @applyr σ r = apply (.var ∘ r) := by
+  apply funext; intros e; revert r
+  -- Induction on `e`.
+  let motive := fun (e : Expr σ) => ∀ r, applyr r e = apply (.var ∘ r) e
+  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
+    <;> intros <;> (try trivial) <;> intros r
+  case var k => rw [applyr, apply]; rfl
+  case binder e ih =>
+    rw [applyr, apply]; congr 2; rw [ih]
+    suffices h : (.var ∘ fun | 0 => 0 | i + 1 => r i + 1) =
+                 (cons (.var 0) (compr (.var ∘ r) (fun x => x + 1))) by rw [← h]; rfl
+    apply funext; intros i
+    cases i with
+    | zero => rfl
+    | succ i => simp only [Function.comp, cons, compr, applyr]
+  case node x es ih =>
+    induction es with
+    | nil => rw [applyr, apply, apply.nested]; rfl
+    | cons h' t' ih' =>
+      rw [List.foldr] at ih
+      rw [applyr, applyr.nested, apply, apply.nested]
+      congr 2
+      . exact ih.left _
+      . specialize ih' ih.right
+        rw [applyr, apply] at ih'
+        injection ih'
+
+/-- `compr` agrees with `comp` for renamings. -/
+@[simp high]
+theorem compr_def (s r) : @compr σ s r = comp s (.var ∘ r) := by
+  apply funext; intros i
+  rw [compr, comp, applyr_def]
+
+def up : Nat → Subst σ → Subst σ
+  | 0,     s => s
+  | i + 1, s => cons (.var 0) (compr (up i s) (1 + .))
+
+theorem gg : apply (up 1 s) (applyr (1 + .) e) = applyr (1 + .) (apply s e) := by
+  -- Induction on `e`.
+  let motive := fun (e : Expr σ) => ∀ s, @apply σ (up 1 s) (applyr (1 + .) e) = applyr (1 + .) (apply s e)
+  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
+    <;> intros <;> (try trivial) <;> intros s
+  case var k =>
+    simp only [Function.comp, apply]
+  case binder e ih =>
+    simp [applyr_def, apply] at *
+    
+    rw [ih]
+    suffices h : (.var ∘ fun | 0 => 0 | i + 1 => r i + 1) =
+                 (cons (.var 0) (compr (.var ∘ r) (fun x => x + 1))) by rw [← h]; rfl
+    apply funext; intros i
+    cases i with
+    | zero => rfl
+    | succ i => simp only [Function.comp, cons, compr, applyr]
+  case node x es ih =>
+    induction es with
+    | nil => simp only [apply, apply.nested]
+    | cons h' t' ih' =>
+      rw [List.foldr] at ih
+      simp only [apply, apply.nested] at *
+      congr 2
+      . exact ih.left _ _
+      . specialize ih' ih.right
+        simp only [apply, apply.nested] at ih'
+        injection ih'
 
 /-!
   Instructions for the `simp` tactic.
@@ -324,119 +87,113 @@ variable (e : Expr σ) (es : List (Expr σ))
 -/
 
 @[simp]
-theorem get_zero : (cons e s).get 0 = e := by
-  induction s using Quotient.ind
-  rw [← cons_wrap, ← get_wrap]; rfl
+theorem get_zero : (cons e s) 0 = e := rfl
 
 @[simp]
-theorem get_succ : (cons e s).get (i + 1) = s.get i := by
-  induction s using Quotient.ind
-  rw [← cons_wrap, ← get_wrap, Subst'.get_expand, Subst'.drop_cons]; rfl
+theorem get_succ : (cons e s) (i + 1) = s i := rfl
 
 @[simp]
-theorem shift_zero : shift σ 0 = id σ := rfl
+theorem shift_wrap_left : .var ∘ (i + .) = shift σ i := rfl
+
+@[simp]
+theorem shift_wrap_right : .var ∘ (. + i) = shift σ i := by
+  apply funext; intros k; rw [Function.comp, Nat.add_comm]; rfl
+
+@[simp]
+theorem shift_zero : shift σ 0 = id σ := by
+  apply funext; intros i
+  rw [id, shift, Nat.zero_add]
 
 @[simp]
 theorem shift_succ_succ : shift σ (i + 1 + 1) = comp (shift σ (i + 1)) (shift σ 1) := by
-  simp only [← shift_wrap, ← comp_wrap]
-  apply Quotient.sound; intros k
-  rw [Subst'.comp_def, Subst'.get, Subst'.drop_shift, Subst'.head_shift, Subst'.get, Subst'.drop_shift,
-      Subst'.head_shift, Subst'.apply, Subst'.get, Subst'.drop_shift, Subst'.head_shift,
-      ← Nat.add_assoc, ← Nat.add_assoc, Nat.add_comm 1 i]
+  apply funext; intros k
+  simp only [shift, comp, apply]
+  conv => lhs; rw [Nat.add_comm i 1]
+  rw [Nat.add_assoc 1, Nat.add_assoc 1]
 
 @[simp]
-theorem comps_expand : comps s i = comp s (shift σ i) := by
-  induction s using Quotient.ind
-  rw [← comps_wrap, ← shift_wrap, ← comp_wrap]
-  apply Quotient.sound; intros k
-  rw [Subst'.comps_def, Subst'.comp_def, Subst'.applys_def]; rfl
+theorem apply_var : apply s (.var i) = s i := by
+  rw [apply]
 
 @[simp]
-theorem apply_var : s (.var i) = s.get i := by
-  induction s using Quotient.ind
-  rw [← apply_wrap, ← get_wrap, Subst'.apply]
+theorem apply_binder : apply s (.binder e) = .binder (apply (cons (.var 0) (comp s (shift σ 1))) e) := by
+  rw [apply]
+  simp only [compr_def, shift_wrap_right, comp_def]
 
 @[simp]
-theorem apply_binder : s (.binder e) = .binder ((cons (.var 0) (comp s (shift σ 1))) e) := by
-  induction s using Quotient.ind
-  rw [← apply_wrap, Subst'.apply, apply_wrap, cons_wrap, comps_wrap, comps_expand]
-
-@[simp]
-theorem apply_node : s (.node x es) = .node x (es.map s) := by
-  induction s using Quotient.ind
+theorem apply_node : apply s (.node x es) = .node x (es.map (apply s)) := by
   induction es with
-  | nil => rw [List.map, ← apply_wrap, Subst'.apply, Subst'.apply.nested]
-  | cons h t ih =>
-    rw [List.map, ← apply_wrap, Subst'.apply, Subst'.apply.nested]
-    rw [← apply_wrap, Subst'.apply] at ih
-    congr; injection ih
+  | nil => rw [List.map, apply, apply.nested]
+  | cons h t ih => rw [List.map, apply, apply.nested] at *; congr 2; injection ih
 
 @[simp]
-theorem apply_apply : t (s e) = (comp s t) e := by
-  induction s using Quotient.ind; rename_i s
-  induction t using Quotient.ind; rename_i t
-  exact Subst'.apply_apply _ _ _
+theorem apply_apply : apply t (apply s e) = apply (comp s t) e := by
+  rw [comp_def]
+  revert t s
+  -- Induction on `e`.
+  let motive := fun (e : Expr σ) => ∀ s t, @apply σ t (apply s e) = (apply (apply t ∘ s)) e
+  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
+    <;> intros <;> (try trivial) <;> intros s t
+  case var k => simp only [Function.comp, apply]
+  case binder e ih =>
+    simp only [Function.comp, apply]
+    rw [ih]
+    simp [Function.comp]
+    suffices h :
+        apply (cons (.var 0) (apply (shift _ 1) ∘ t)) ∘ cons (.var 0) (apply (shift _ 1) ∘ s) =
+        cons (.var 0) (apply (shift _ 1) ∘ apply t ∘ s) by rw [h]
+    apply funext; intros i
+    cases i with
+    | zero => rfl
+    | succ i =>
+      suffices h : ∀ e,
+          apply (cons (.var 0) (compr t (1 + .))) (applyr (1 + .) e) =
+          applyr (1 + .) (apply t e) by
+        rw [applyr_def, compr_def] at h; exact h (s i)
+      exact gg _
+  case node x es ih =>
+    induction es with
+    | nil => simp only [apply, apply.nested]
+    | cons h' t' ih' =>
+      rw [List.foldr] at ih
+      simp only [apply, apply.nested] at *
+      congr 2
+      . exact ih.left _ _
+      . specialize ih' ih.right
+        simp only [apply, apply.nested] at ih'
+        injection ih'
 
 @[simp]
-theorem id_apply : (id σ) e = e := by
-  exact Subst'.id_apply _
+theorem id_apply : apply (id σ) e = e := by
+  sorry
 
 @[simp]
 theorem id_comp : comp (id σ) s = s := by
-  induction s using Quotient.ind
-  apply Quotient.sound; intros k
-  rw [Subst'.id, Subst'.comp_def, Subst'.get, Subst'.drop_shift, Subst'.head_shift, Subst'.apply, Nat.zero_add]
+  sorry
 
 @[simp]
 theorem comp_id : comp s (id σ) = s := by
-  induction s using Quotient.ind; rename_i s
-  apply Quotient.sound; intros k
-  rw [Subst'.comp_def, apply_wrap, id_wrap, id_apply]
+  sorry
 
 @[simp]
 theorem shift_comp_cons : comp (shift σ 1) (cons e s) = s := by
-  induction s using Quotient.ind; rename_i s
-  apply Quotient.sound; intros k
-  rw [Subst'.comp_def, Subst'.get, Subst'.drop_shift, Subst'.head_shift, Subst'.apply, Nat.add_comm,
-      Subst'.get_expand, Subst'.drop_cons, Subst'.get_expand]
+  sorry
 
 @[simp]
-theorem cons_comp : comp (cons e s) t = cons (t e) (comp s t) := by
-  induction s using Quotient.ind; rename_i s
-  induction t using Quotient.ind; rename_i t
-  apply Quotient.sound; intros k
-  cases k with
-  | zero => rw [Subst'.comp_def, Subst'.get]; rfl
-  | succ => rw [Subst'.comp_def, Subst'.get, Subst'.get, Subst'.drop_cons, Subst'.drop_cons, ← Subst'.get_expand,
-                ← Subst'.get_expand, Subst'.comp_def]
+theorem cons_comp : comp (cons e s) t = cons (apply t e) (comp s t) := by
+  sorry
 
 @[simp]
 theorem comp_assoc : comp (comp s t) u = comp s (comp t u) := by
-  induction s using Quotient.ind; rename_i s
-  induction t using Quotient.ind; rename_i t
-  induction u using Quotient.ind; rename_i u
-  apply Quotient.sound; intros k
-  simp only [Subst'.comp_def, Subst'.apply]
-  simp only [get_wrap, apply_wrap, apply_apply, comp_wrap]
+  sorry
 
 @[simp]
-theorem apply_zero_cons_shift_comp : cons (s (.var 0)) (comp (shift σ 1) s) = s := by
-  induction s using Quotient.ind; rename_i s
-  rw [← apply_wrap, Subst'.apply, ← shift_wrap, ← comp_wrap, ← cons_wrap]
-  apply Quotient.sound; intros k
-  cases k with
-  | zero => rfl
-  | succ => rw [Subst'.get, Subst'.drop_cons, ← Subst'.get, Subst'.comp_def, Subst'.get, Subst'.drop_shift,
-                Subst'.head_shift, Subst'.apply, Nat.one_add]
+theorem apply_zero_cons_shift_comp : cons (apply s (.var 0)) (comp (shift σ 1) s) = s := by
+  sorry
 
 @[simp]
 theorem zero_cons_shift : cons (.var 0) (shift σ 1) = id σ := by
-  rw [← shift_wrap, ← id_wrap, ← cons_wrap]
-  apply Quotient.sound; intros k
-  cases k with
-  | zero => rfl
-  | succ => rw [Subst'.get, Subst'.drop_cons, Subst'.drop_shift, Subst'.head_shift, Subst'.id_expand, Subst'.get,
-                Subst'.drop_shift, Subst'.head_shift, Nat.one_add, Nat.zero_add]
+  sorry
 
 /-
 example : comp (shift σ 1) (id σ) = shift σ 1 := by
