@@ -25,11 +25,6 @@ def up : Nat → Subst' σ → Subst' σ
   | 0,     s => s
   | i + 1, s => cons (.var 0) (comp (up i s) (shift 1))
 
-/-- Auxiliary function. -/
-def drop : Nat → Subst' σ → Subst' σ
-  | 0,     s => s
-  | i + 1, s => comp (shift 1) (drop i s)
-
 /-- Accessing higher entries of `up shift`. -/
 theorem up_shift_get_high (h : j ≤ k) : (up j (@shift σ i)).get k = .var (k + i) := by
   have ⟨d, hd⟩ := Nat.le.dest h; clear h
@@ -154,6 +149,16 @@ theorem id_apply : (id σ) e = e := by
         rw [id, apply] at ih'
         injection ih'
 
+theorem idk₁ : (shift 1) ((shift i) e) = (shift (Nat.succ i)) e := by
+  revert i
+  -- Induction on `e`.
+  let motive := fun (e : Expr σ) => ∀ i, (shift 1) ((shift i) e) = (shift (Nat.succ i)) e
+  apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => motive e ∧ etc) True)
+    <;> intros <;> (try trivial) <;> intros i
+  case var j => simp only [get, apply]; rfl 
+  case binder e ih => simp only [apply, comps]; congr 1;  
+  case node x es ih => sorry
+
 /-- Accessing higher entries of `up`. -/
 theorem up_get_high : (up j s).get (j + k) = apply (shift j) (s.get k) := by
   induction j generalizing k with
@@ -201,6 +206,14 @@ theorem up_apply_up_shift_apply : (up (i + 1) s) ((up i (shift 1)) e) = (up i (s
 
 /-- Applying composition of substitutions. -/
 theorem apply_apply : t (s e) = (comp s t) e := by
+  have h : ∀ i, (t ∘ s.get) i = (comp s t).get i := by intros k; rw [comp_def]; rfl
+  suffices h : t ∘ s = comp s t by rw [← h]; rfl
+  
+  induction t with
+  | shift i =>
+    induction s with
+    | shift j => rw [comp]; rw [Subst.apply.respects _ _ h]
+
   -- Induction on `e`.
   let motive := fun (e : Expr σ) => ∀ t s, t (s e) = (comp s t) e
   apply @Expr.recOn _ (fun e => motive e) (List.foldr (fun e etc => (motive e) ∧ etc) True)

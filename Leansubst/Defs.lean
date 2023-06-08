@@ -33,11 +33,28 @@ inductive Subst' (σ : Type) where
 
 namespace Subst'
 
-/-- Evaluate substitution at a given index. -/
-def get : Subst' σ → Nat → Expr σ
-  | shift n,  i     => .var (i + n)
-  | cons h _, 0     => h
-  | cons _ t, i + 1 => get t i
+/-- The identity substitution. -/
+def id (σ) : Subst' σ :=
+  shift 0
+
+/-- Extract first element in sequence. -/
+def head : Subst' σ → Expr σ
+  | shift n  => .var n
+  | cons h _ => h
+
+/-- Drops first element in sequence. -/
+def tail : Subst' σ → Subst' σ
+  | shift n  => shift (n + 1)
+  | cons _ t => t
+
+/-- Drops first `n` elements in sequence. -/
+def drop : Nat → Subst' σ → Subst' σ
+  | 0,     s => s
+  | n + 1, s => tail (drop n s)
+
+/-- Get element at given index. -/
+def get : Nat → Subst' σ → Expr σ :=
+  fun n s => head (drop n s)
 
 /-- Extensional equivalence of substitutions. -/
 instance setoid (σ) : Setoid (Subst' σ) where
@@ -47,9 +64,30 @@ instance setoid (σ) : Setoid (Subst' σ) where
     symm  := fun h i => .symm (h i)
     trans := fun h₁ h₂ i => .trans (h₁ i) (h₂ i) }
 
-/-- The identity substitution. -/
-def id (σ) : Subst' σ :=
-  shift 0
+/-! Instructions for the `simp` tactic. -/
+@[simp↓ high] theorem id_expand : id σ = shift 0 := rfl
+@[simp low] theorem shift_zero : shift 0 = id σ := rfl
+@[simp high] theorem head_shift (n) : @head σ (shift n) = .var n := rfl
+@[simp high] theorem head_cons (h t) : @head σ (cons h t) = h := rfl
+@[simp↓ high] theorem tail_expand (s) : @tail σ s = drop 1 s := rfl
+@[simp low] theorem drop_one (s) : @drop σ 1 s = tail s := rfl
+
+@[simp high] theorem drop_zero (s) : @drop σ 0 s = s := rfl
+
+@[simp high]
+theorem drop_drop (n m s) : @drop σ n (drop m s) = drop (m + n) s := by
+  induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
+
+@[simp high]
+theorem drop_shift (n m) : @drop σ n (shift m) = shift (m + n) := by
+  induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
+
+@[simp high]
+theorem drop_cons (n h t) : @drop σ (n + 1) (cons h t) = drop n t := by
+  induction n with | zero => rfl | succ _ ih => rw [drop, ih, tail]; rfl
+
+@[simp↓ high] theorem get_expand (n s) : @get σ n s = head (drop n s) := rfl
+@[simp low] theorem head_drop (s n) : @head σ (drop n s) = get n s := rfl
 
 /-- Shift variables with level ≥ `n` by `m` levels (ugly bootstrapping definition). -/
 def applys : Nat → Nat → Expr σ → Expr σ
@@ -66,22 +104,21 @@ def comps : Subst' σ → Nat → Subst' σ
   | cons h t, m => cons (applys 0 m h) (comps t m)
 
 /-- Composition of substitution and shift follows the expected definition. -/
-theorem comps_def (s : Subst' σ) (n : Nat) : ∀ i, (comps s n).get i = applys 0 n (s.get i) := by
+theorem comps_def (s : Subst' σ) (n : Nat) : ∀ i, get i (comps s n) = applys 0 n (get i s) := by
   intros i
-  induction s generalizing n i with
-  | shift m =>
-    simp only [get, comps, applys]
-    split
-    case inl => rw [Nat.add_assoc]
-    case inr h => exfalso; exact h (Nat.zero_le _)
+  induction s generalizing i with
+  | shift m =>  
+    simp only [get, head, comps, drop_shift, applys, Nat.zero_le, ite_true]
+    rw [Nat.add_assoc, Nat.add_comm n i, ← Nat.add_assoc] 
   | cons h s ih =>
+    simp only [comps, get_expand] at *
     cases i with
-    | zero => simp only [get, ih]
-    | succ i => simp only [get, ih]
+    | zero => rfl
+    | succ i => simp only [drop_cons] at *; rw [ih]
 
 /-- Applies a substitution on a term. -/
 def apply : Subst' σ → Expr σ → Expr σ
-  | s, .var i     => s.get i
+  | s, .var i     => get i s
   | s, .binder e  => .binder (apply (cons (.var 0) (comps s 1)) e)
   | s, .node n es => .node n (nested s es)
 where nested : Subst' σ → List (Expr σ) → List (Expr σ)
@@ -93,26 +130,19 @@ termination_by
 
 /-- Composition of substitutions. -/
 def comp : Subst' σ → Subst' σ → Subst' σ
-  | shift n,       shift m  => shift (n + m)
-  | shift 0,       cons h t => cons h t
-  | shift (n + 1), cons _ t => comp (shift n) t
-  | cons h t,      r        => cons (r.apply h) (comp t r)
+  | shift n,  r => drop n r
+  | cons h t, r => cons (apply r h) (comp t r)
 
 /-- Composition of substitutions follows the expected definition. -/
-theorem comp_def (s t : Subst' σ) : ∀ i, (comp s t).get i = t.apply (s.get i) := by
+theorem comp_def (s t : Subst' σ) : ∀ i, get i (comp s t) = apply t (get i s) := by
   intros i
   induction s generalizing t i with
-  | shift n =>
-    induction t generalizing n with
-    | shift m => simp only [get, comp, apply]; rw [Nat.add_assoc]
-    | cons h t ih =>
-      cases n with
-      | zero => simp [get, comp, apply]
-      | succ n => simp [get, comp, apply, ih]
+  | shift n => simp only [comp, get_expand, drop_drop, drop_shift, head_shift, apply]
   | cons h s ih =>
+    simp only [comp, get_expand] at *
     cases i with
-    | zero => simp only [get, comp, ih]
-    | succ i => simp only [get, comp, ih]
+    | zero => rfl
+    | succ i => simp only [drop_cons]; rw [ih]
 
 /-- Now we can write `s t` for applying substitution `s` on term `t`. -/
 instance : CoeFun (Subst' σ) (fun _ => Expr σ → Expr σ) where
@@ -128,11 +158,6 @@ namespace Subst
 
 local notation:arg "⟦" a "⟧" => Quotient.mk (Subst'.setoid _) a
 
-/-- Evaluate substitution at a given index. -/
-def get : Subst σ → Nat → Expr σ :=
-  Quotient.lift Subst'.get $
-    fun _ _ h => funext $ fun i => h i
-
 /-- Lifted constructor `shift`. -/
 def shift (σ) : Nat → Subst σ :=
   fun n => ⟦Subst'.shift n⟧
@@ -140,25 +165,29 @@ def shift (σ) : Nat → Subst σ :=
 /-- Lifted constructor `cons`. -/
 def cons : Expr σ → Subst σ → Subst σ :=
   fun e => Quotient.lift (fun s => ⟦Subst'.cons e s⟧) $ by
-    intros s t h; apply Quotient.sound; intros i
+    intros s t h
+    apply Quotient.sound; intros i
     cases i with
-    | zero => eq_refl
-    | succ i => exact h i
+    | zero => rfl
+    | succ i => simp only [Subst'.get_expand, Subst'.drop_cons]; exact h i
 
 /-- Lifted constructor `id`. -/
 def id (σ) : Subst σ :=
   ⟦Subst'.id σ⟧
+
+/-- Evaluate substitution at a given index. -/
+def get : Nat → Subst σ → Expr σ :=
+  fun n => Quotient.lift (Subst'.get n) $
+    fun _ _ h => h n
 
 /-- Composition of substitution and shift. -/
 def comps : Subst σ → Nat → Subst σ :=
   Quotient.lift (fun s n => ⟦Subst'.comps s n⟧) respects
 where
   respects (s t : Subst' σ) (h : s ≈ t) : _ := by
-    apply funext
-    intros n
-    apply Quotient.sound
-    intros i
-    simp [Subst'.comps_def, h i]
+    apply funext; intros n
+    apply Quotient.sound; intros i
+    rw [Subst'.comps_def, Subst'.comps_def, h i]
 
 /-- Applies a substitution on a term. -/
 def apply : Subst σ → Expr σ → Expr σ :=
@@ -172,32 +201,28 @@ where
       <;> intros <;> (try trivial) <;> intros s t h
     case var i => simp only [Subst'.apply, h i]
     case binder e' ih =>
-      simp [Subst'.apply]
+      simp only [Subst'.apply]; congr 1
       apply ih
       apply Quotient.exact
       suffices h : cons (.var 0) (comps ⟦s⟧ 1) = cons (.var 0) (comps ⟦t⟧ 1) by exact h
       suffices h : ⟦s⟧ = ⟦t⟧ by rw [h]
       exact Quotient.sound h
     case node n es ih =>
-      simp [Subst'.apply]
+      simp only [Subst'.apply, true_and]; congr 1
       induction es with
       | nil => simp only [Subst'.apply.nested]
       | cons h' t' ih' =>
         simp only [List.foldr] at ih
-        simp [Subst'.apply.nested]
-        exact ⟨ih.left _ _ h, ih' ih.right⟩
+        simp only [Subst'.apply.nested]; congr 1
+        exacts [ih.left _ _ h, ih' ih.right]
 
 /-- Composition of substitutions. -/
 def comp : Subst σ → Subst σ → Subst σ :=
   Quotient.lift₂ (fun s t => ⟦Subst'.comp s t⟧) respects
 where
   respects (s₁ t₁ s₂ t₂ : Subst' σ) (h₁ : s₁ ≈ s₂) (h₂ : t₁ ≈ t₂) : _ := by
-    apply Quotient.sound
-    intros i
-    simp [Subst'.comp_def]
-    suffices h : Subst.apply ⟦t₁⟧ (get ⟦s₁⟧ i) = Subst.apply ⟦t₂⟧ (get ⟦s₂⟧ i) by exact h
-    suffices h : ⟦s₁⟧ = ⟦s₂⟧ ∧ ⟦t₁⟧ = ⟦t₂⟧ by rw [h.left, h.right]
-    exact ⟨Quotient.sound h₁, Quotient.sound h₂⟩
+    apply Quotient.sound; intros i
+    rw [Subst'.comp_def, Subst'.comp_def, h₁ i, apply.respects]; exact h₂
 
 /-- Now we can write `s t` for applying substitution `s` on term `t`. -/
 instance : CoeFun (Subst σ) (fun _ => Expr σ → Expr σ) where
