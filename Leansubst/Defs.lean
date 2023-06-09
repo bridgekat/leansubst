@@ -38,7 +38,7 @@ def id (σ) : Subst σ :=
 
 /-- Shift overflow variables up. -/
 def shift (σ) : Nat → Subst σ :=
-  fun n i => .var (n + i)
+  fun n i => .var (i + n)
 
 /-- Prepend to sequence. -/
 def cons : Expr σ → Subst σ → Subst σ :=
@@ -71,7 +71,6 @@ def comp : Subst σ → Subst σ → Subst σ :=
   fun s t i => apply t (s i)
 
 /-- Composition of substitutions follows the expected definition. -/
-@[simp]
 theorem comp_def (s t : Subst σ) : comp s t = apply t ∘ s := rfl
 
 end Subst
