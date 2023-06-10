@@ -2,22 +2,21 @@ import Std.Data.Nat.Basic
 import Std.Tactic.Basic
 
 /-!
-  This file contains the definitions of:
+## Main definitions
 
-  - Expressions: `Expr`;
-  - Substitutions: `Subst` (as a quotient of regular substitutions modulo extensional equivalence);
-  - Expressions with explicit substitutions and "metavariables": `ES` and `SE`.
+* Expressions `Expr` and substitutions `Subst`;
+* Expressions `ES` and substitutions `SE` with explicit substitutions and "metavariables".
 
-  The development roughly follows
-  [[1]](https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Completeness.pdf)
-  with some difference in terminology and formalism.
+The development roughly follows
+[[1]](https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Completeness.pdf)
+with some difference in terminology and formalism.
 -/
 
 namespace Leansubst
 
 /-!
-  First we define expressions *without* explicit substitutions and "metavariables".
-  They serve as a semantic model for more complex expressions (so-called "de Bruijn algebra").
+First we define expressions *without* explicit substitutions and "metavariables".
+They serve as a semantic model for more complex expressions (so-called "de Bruijn algebra").
 -/
 
 /-- Abstract syntax tree using de Bruijn indices. -/
@@ -44,10 +43,15 @@ def shift (σ) : Nat → Subst σ :=
 def cons : Expr σ → Subst σ → Subst σ :=
   fun e f => fun | 0 => e | i + 1 => f i
 
+/-- Reserve one element at the head of a renaming sequence. -/
+def upr : Nat → (Nat → Nat) → (Nat → Nat)
+  | 0,     s => s
+  | n + 1, s => fun | 0 => 0 | i + 1 => (upr n s) i + 1
+
 /-- Applies a renaming on a term. -/
 def applyr : (Nat → Nat) → Expr σ → Expr σ
   | r, .var i     => .var (r i)
-  | r, .binder e  => .binder (applyr (fun | 0 => 0 | i + 1 => r i + 1) e)
+  | r, .binder e  => .binder (applyr (upr 1 r) e)
   | r, .node x es => .node x (nested r es)
 where nested : (Nat → Nat) → List (Expr σ) → List (Expr σ)
   | _, []      => []
@@ -57,10 +61,15 @@ where nested : (Nat → Nat) → List (Expr σ) → List (Expr σ)
 def compr : Subst σ → (Nat → Nat) → Subst σ :=
   fun s r i => applyr r (s i)
 
+/-- Reserve one element at the head of a substitution sequence. -/
+def up : Nat → Subst σ → Subst σ
+  | 0,     s => s
+  | i + 1, s => cons (.var 0) (compr (up i s) (. + 1))
+
 /-- Applies a substitution on a term. -/
 def apply : Subst σ → Expr σ → Expr σ
   | s, .var i     => s i
-  | s, .binder e  => .binder (apply (cons (.var 0) (compr s (. + 1))) e)
+  | s, .binder e  => .binder (apply (up 1 s) e)
   | s, .node n es => .node n (nested s es)
 where nested : Subst σ → List (Expr σ) → List (Expr σ)
   | _, []      => []
@@ -73,10 +82,14 @@ def comp : Subst σ → Subst σ → Subst σ :=
 /-- Composition of substitutions follows the expected definition. -/
 theorem comp_def (s t : Subst σ) : comp s t = apply t ∘ s := rfl
 
+/-- Single-point substitution (for reference). This also drops variables by one. -/
+def single : Nat → Expr σ → Subst σ :=
+  fun i e => up i (cons e (id σ))
+
 end Subst
 
 /-!
-  Now define expressions *with* explicit substitutions and "metavariables".
+Now define expressions *with* explicit substitutions and "metavariables".
 -/
 
 mutual

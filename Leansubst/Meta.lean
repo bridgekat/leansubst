@@ -1,4 +1,4 @@
-import Leansubst.Defs
+import Leansubst.Basic
 
 -- Define a new tactic notation
 syntax "tac" : tactic

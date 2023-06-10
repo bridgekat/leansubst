@@ -2,7 +2,7 @@ import Std.Data.Nat.Lemmas
 import Leansubst.Defs
 
 /-!
-  This file contains equational lemmas related to `Expr`, `Subst`, `ES` and `SE`.
+This file contains equational lemmas related to `Expr` and `Subst`.
 -/
 
 namespace Leansubst.Subst
@@ -12,14 +12,6 @@ variable {σ : Type}
 variable (s t u : Subst σ)
 variable (i j k : Nat) (x : σ)
 variable (e : Expr σ) (es : List (Expr σ))
-
-def upr : Nat → (Nat → Nat) → (Nat → Nat)
-  | 0,     s => s
-  | i + 1, s => fun | 0 => 0 | k + 1 => (upr i s) k + 1
-
-def up : Nat → Subst σ → Subst σ
-  | 0,     s => s
-  | i + 1, s => cons (.var 0) (compr (up i s) (. + 1))
 
 theorem id_applyr : applyr (.) e = e := by
   -- Induction on `e`.
@@ -80,7 +72,7 @@ theorem applyr_def (r) : @applyr σ r = apply (.var ∘ r) := by
     congr 2; apply funext; intros i
     cases i with
     | zero => rfl
-    | succ i => simp only [Function.comp, cons, compr, applyr]
+    | succ i => simp only [Function.comp, upr, up, cons, compr, applyr]
   case node x es ih =>
     induction es with
     | nil => rw [applyr, apply, apply.nested]; rfl
@@ -160,7 +152,7 @@ theorem upr_def (r) : .var ∘ upr i r = @up σ i (.var ∘ r) := by
   apply funext; intros j
   cases Nat.lt_sum_ge j i with
   | inl h => rw [Function.comp, upr_get_low _ _ _ h, up_get_low _ _ _ h]
-  | inr h =>  
+  | inr h =>
     have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
     rw [Function.comp, upr_get_high, up_get_high, Function.comp, applyr]
 
@@ -181,9 +173,9 @@ theorem gg : apply (up (i + 1) s) (applyr (upr i (. + 1)) e) = applyr (upr i (. 
       congr 1; apply funext; intros j
       rw [Function.comp, Nat.add_comm j i, upr_get_high, Nat.add_comm i 1, Nat.add_assoc]
   case binder e ih =>
-    conv => lhs; rw [applyr, apply, ← up]
+    conv => lhs; rw [applyr, apply, up, up, ← up, upr, upr, ← upr]
     have h : s = up 0 s := rfl
-    conv => rhs; rw [apply, applyr, h, ← up]
+    conv => rhs; rw [apply, applyr, h, up, up, ← up, upr, upr, ← upr]
     congr 1
     exact ih _ _
   case node x es ih =>
@@ -224,13 +216,14 @@ theorem shift_zero : shift σ 0 = id σ := by
   apply funext; intros i
   rw [id, shift]; rfl
 
+/-- This must be manually applied... -/
+theorem shift_succ : shift σ (i + 1) = comp (shift σ i) (shift σ 1) := by
+  apply funext; intros j; rw [shift, comp, shift, apply, shift, Nat.add_assoc]
+
 /-- Normalise `shift n` to either `shift 1` or `id`. -/
 @[simp]
 theorem shift_succ_succ : shift σ (i + 1 + 1) = comp (shift σ (i + 1)) (shift σ 1) := by
-  apply funext; intros j
-  simp only [shift, comp, apply]
-  conv => lhs; rw [Nat.add_comm i 1]
-  rw [Nat.add_comm 1 i, ← Nat.add_assoc]
+  apply funext; intros j; rw [shift_succ]
 
 @[simp]
 theorem apply_var : apply s (.var i) = s i := by
@@ -239,7 +232,7 @@ theorem apply_var : apply s (.var i) = s i := by
 @[simp]
 theorem apply_binder : apply s (.binder e) = .binder (apply (cons (.var 0) (comp s (shift σ 1))) e) := by
   rw [apply]
-  simp only [compr_def, shift_wrap_right, comp_def]
+  simp only [compr_def, shift_wrap_right, comp_def, up]
 
 @[simp]
 theorem apply_node : apply s (.node x es) = .node x (es.map (apply s)) := by
@@ -261,7 +254,7 @@ theorem id_apply : apply (id σ) e = e := by
     congr 2; apply funext; intros k
     cases k with
     | zero => rfl
-    | succ => simp only [cons, id, compr, applyr]
+    | succ => simp only [cons, id, compr, applyr, up]
   case node x es ih =>
     induction es with
     | nil => simp only [apply, apply.nested]
