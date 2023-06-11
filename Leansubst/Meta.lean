@@ -1,5 +1,6 @@
 import Leansubst.Basic
 
+/-
 -- Define a new tactic notation
 syntax "tac" : tactic
 
@@ -29,3 +30,4 @@ macro_rules | `(tactic| tac) => `(tactic| apply And.intro <;> tac)
 
 example (x : α) (h : p) : x = x ∧ p := by
   tac
+-/

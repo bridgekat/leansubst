@@ -2,7 +2,7 @@ import Std.Data.Nat.Basic
 import Std.Tactic.Basic
 
 /-!
-## Main definitions
+This file contains definitions of:
 
 * Expressions `Expr` and substitutions `Subst`;
 * Expressions `ES` and substitutions `SE` with explicit substitutions and "metavariables".
@@ -33,7 +33,7 @@ namespace Subst
 
 /-- The identity substitution. -/
 def id (σ) : Subst σ :=
-  fun i => .var i
+  .var
 
 /-- Shift overflow variables up. -/
 def shift (σ) : Nat → Subst σ :=

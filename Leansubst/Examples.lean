@@ -71,10 +71,10 @@ theorem to_expr_shift (s : Term) (n m : Nat) :
     split <;> simp only [toExpr, Subst.apply, Subst.apply.nested]
     case inl h =>
       have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
-      congr; simp [Subst.shift, Subst.up_get_high]
+      congr; simp only [Subst.shift, Subst.up_get_high, Subst.applyr_def, Subst.apply, Function.comp]
       rw [Nat.add_comm n d, Nat.add_assoc, Nat.add_comm n m, Nat.add_assoc]
     case inr h =>
-      congr; simp [Subst.shift, Subst.up_get_low _ _ _ (Nat.lt_of_not_le h)]
+      congr; simp only [Subst.shift, Subst.up_get_low _ _ _ (Nat.lt_of_not_le h)]
   | app l r ihl ihr =>
     simp only [toExpr, Subst.apply, Subst.apply.nested]
     congr; exacts [ihl _, ihr _]
@@ -94,13 +94,13 @@ theorem to_expr_subst (s t : Term) (n : Nat) :
       | zero => contradiction
       | succ i =>
         have ⟨d, hd⟩ := Nat.le.dest (Nat.le_of_lt_succ h); subst hd; clear h
-        rw [← Nat.add_succ, Subst.up_get_high]; simp
-        rw [Nat.add_succ, Nat.pred_succ]; simp [Subst.shift, Subst.apply, Subst.id]
-        rw [Nat.add_comm]
+        rw [← Nat.add_succ, Subst.up_get_high, Subst.var_expand, Subst.applyr_def]
+        rw [Nat.add_succ, Nat.pred_succ, Subst.cons]; simp only
+        rw [Subst.id, Subst.apply, Function.comp, Subst.var_expand, Nat.add_comm]
     case inr.inl h₁ h₂ =>
       subst h₂; clear h₁
       conv => rhs; rhs; rw [← Nat.add_zero n]
-      rw [Subst.up_get_high, to_expr_shift, Subst.up]; simp
+      rw [Subst.up_get_high, to_expr_shift, Subst.up]; simp; rfl
     case inr.inr h₁ h₂ =>
       have h := Nat.lt_of_le_of_ne (Nat.le_of_not_lt h₁) (Ne.symm h₂); clear h₁ h₂
       rw [Subst.up_get_low _ _ _ h]
@@ -118,15 +118,48 @@ Now we are finally ready to go!
 local notation t " ⟦" n:80 " ↟ " m:79 "⟧"  => shift t n m
 local notation t " ⟦" n:80 " ↦ " t':79 "⟧" => subst t n t'
 
-syntax "lsimp" : tactic
+/-- Make it look better... -/
+syntax "leansubst" : tactic
+syntax "tidysubst" : tactic
+
 macro_rules
-  | `(tactic| lsimp) =>
-    `(tactic| apply to_expr_inj; simp only [Subst.single, toExpr, to_expr_shift, to_expr_subst]; simp)
+  -- This expands everything to normal form.
+  | `(tactic| leansubst) => `(tactic|
+    simp only [toExpr, to_expr_shift, to_expr_subst];
+    simp [Nat.add_zero, Nat.zero_add, Nat.add_succ, Nat.succ_add])
+  -- This restores you some sanity (hopefully...) in case anything stucks.
+  | `(tactic| tidysubst) => `(tactic|
+    simp only [Subst.var0, Subst.shift1, Subst.shift_comp_shift, Subst.up_up];
+    simp only [← Subst.var_expand, ← Subst.comp_assoc];
+    simp only [← Subst.apply_apply];
+    simp only [Subst.apply, Subst.id, Subst.shift, Subst.cons, Subst.up])
 
-theorem shift_shift_disjoint_ind (e k a b c) : e ⟦(b + k) ↟ c⟧ ⟦k ↟ a⟧ = e ⟦k ↟ a⟧ ⟦(a + b + k) ↟ c⟧ := by
+-- A working example.
+example (s) :
+    .lam "x" (.app (.var 0) (.var 3)) ⟦2 ↦ s⟧ =
+    .lam "x" (.app (.var 0) (s ⟦0 ↟ 3⟧)) := by
+  apply to_expr_inj
+  leansubst
 
-  lsimp
-
-example (s) : .lam "x" (.app (.var 0) (.var 3)) ⟦2 ↦ s⟧ = .lam "x" (.app (.var 0) (s ⟦0 ↟ 1⟧)) := by
-  lsimp
-  sorry
+-- A non-working example.
+example (s n) :
+    .lam "x" (.app (.var 0) (.var (n + 3))) ⟦(n + 2) ↦ s⟧ =
+    .lam "x" (.app (.var 0) (s ⟦0 ↟ (n + 3)⟧)) := by
+  apply to_expr_inj
+  leansubst; tidysubst
+  -- Stuck at `up n`; requires manual proof of inequality.
+  rw [Nat.add_comm 0 n, Subst.up_get_high]
+  leansubst; tidysubst
+  -- Stuck; requires manual conversion of renaming functions to `shift`.
+  have h : (fun i => Expr.var (0 + (1 + (1 + (1 + i))))) = Subst.shift Sig 3 :=
+    funext $ fun i => by simp only [Nat.zero_add, Nat.one_add, Subst.shift]
+  rw [h]; clear h
+  have h : Expr.var ∘ (fun x => x + n) = Subst.shift Sig n := rfl
+  rw [h]; clear h
+  have h : (fun i => Expr.var (0 + (1 + (1 + (1 + (i + n)))))) = Subst.shift Sig (n + 3) :=
+    funext $ fun i => by simp only [Nat.zero_add, Nat.one_add, Subst.shift, Nat.add_succ]
+  rw [h]; clear h
+  leansubst; tidysubst
+  -- Stuck; requires manual proof of equality.
+  congr
+  apply funext; intros i; rw [Nat.add_comm n, Nat.add_assoc, Nat.add_assoc]

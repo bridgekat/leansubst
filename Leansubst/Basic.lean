@@ -10,9 +10,10 @@ namespace Leansubst.Subst
 variable {σ : Type}
 
 variable (s t u : Subst σ)
-variable (i j k : Nat) (x : σ)
+variable (n m i j k : Nat) (x : σ)
 variable (e : Expr σ) (es : List (Expr σ))
 
+/-- Applying the identity renaming. -/
 theorem id_applyr : applyr (.) e = e := by
   -- Induction on `e`.
   apply @Expr.recOn _
@@ -36,6 +37,7 @@ theorem id_applyr : applyr (.) e = e := by
         simp only [applyr, applyr.nested] at ih'
         injection ih'
 
+/-- Applying composition of renamings. -/
 theorem applyr_applyr (s r) : applyr r (applyr s e) = applyr (r ∘ s) e := by
   revert s r
   -- Induction on `e`.
@@ -156,7 +158,7 @@ theorem upr_def (r) : .var ∘ upr i r = @up σ i (.var ∘ r) := by
     have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
     rw [Function.comp, upr_get_high, up_get_high, Function.comp, applyr]
 
-/-- A difficult lemma for proving `apply_apply`... -/
+/-- A difficult lemma for proving the `apply_apply` below... -/
 theorem gg : apply (up (i + 1) s) (applyr (upr i (. + 1)) e) = applyr (upr i (. + 1)) (apply (up i s) e) := by
   -- Induction on `e`.
   let motive := fun (e : Expr σ) => ∀ s i,
@@ -191,56 +193,109 @@ theorem gg : apply (up (i + 1) s) (applyr (upr i (. + 1)) e) = applyr (upr i (. 
         injection ih'
 
 /-!
-  Instructions for the `simp` tactic.
-  These should also be a complete set of equational axioms.
+Instructions for the `simp` tactic.
+
+The primitive operations handled are `id`, `shift n`, `cons e s`, `up n s`, `comp s₁ s₂` `apply s e`
+and function application `s n`, where `n` are natural numbers, `s` are substitutions and `e` are
+expressions built from `var n`, `binder e` and `node _ [e]`.
+
+In [[1]](https://academic.oup.com/logcom/article-abstract/6/6/799/965899) it was proved that a set of
+twelve rewriting rules (so-called `σ'`-calculus in the paper) constitute a confluent and terminating rewriting
+system:
+
+- (Id, VrId)  `apply id e`                → `e`
+- (VrCons)    `apply (cons e s) (var 0)`  → `e`
+- (App)       `apply s (app e₁ e₂)`       → `app (apply s e₁) (apply s e₂)`
+- (Abs)       `apply s (lam e)`           → `lam (apply (cons (var 0) (comp s (shift 1))) e)`
+- (Clos)      `apply s₂ (apply s₁ e)`     → `apply (comp s₁ s₂) e`
+- (IdL)       `comp id s`                 → `s`
+- (IdR, ShId) `comp s id`                 → `s`
+- (ShCons)    `comp (shift 1) (cons e s)` → `s`
+- (Map)       `comp (cons e s₁) s₂`       → `cons (apply s₂ e) (comp s₁ s₂)`
+- (Assoc)     `comp (comp s₁ s₂) s₃`      → `comp s₁ (comp s₂ s₃)`
+- (VrSh)      `cons (var 0) (shift 1)`    → `id`
+- (SCons)     `cons (apply s (var 0)) (comp (shift 1) s)` → `s`
+
+These rules deal with `id`, `shift 1`, `cons e s`, `comp s₁ s₂`, `apply s e` where `n`, `s` are the same,
+`e` are expressions built form `var 0`, `app e₁ e₂` and `lam e`. It was further proved in
+[[2]](https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Completeness.pdf)
+that these rules are also *complete* for such set of primitives (in the sense that there exists a "separating
+assignment" for two any expressions with different normal forms).
+
+> Remark: as a rewriting system, its termination is *surprisingly* difficult to establish. However this is still
+> understandable: by breaking down a simple substitution operation into many pieces, we are making the termination
+> proof strictly harder, since now we have to find some decreasing measure which orients *every* small step,
+> instead of one which just decreases from the starting position to the final position.
+> [[2]](https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Completeness.pdf)
+> has suggested using a proper *algorithm* instead of *rewriting* to avoid such difficulty.
+
+In this project I choose to normalise `upr`, `applyr`, `compr`, function application (*), `single` and `var n`
+(to `apply (shift n) (var 0)`) first; the remaining extensions which need to be handled are
+`shift n` and `up n s`. The handling has to be more-or-less heuristic:
+
+- For `up n s`, the strategy is to merge repeated applications first, then rewrite `n` (a sum of natural numbers)
+  using `[Nat.add_succ, Nat.succ_add]` so that all `succ`s are moved to the outermost, and then I can expand
+  the definition of `up`.
+- For `shift n`, again repeated `apply (shift n)` are merged first, then `n` is rewritten so that the `succ`s
+  bubble out. Now we cannot naively expand `shift (succ n)`: sometimes we need `comp (shift 1) (shift n)`
+  (VrSh, SCons), but sometimes we need `comp (shift n) (shift 1)` (ShCons). I preferred the first expansion, and
+  used a generalised rule for ShCons.
+
+(*) Expansion of function application must be done manually for now
+    (`simp` will stack overflow, and `rw` errors with "pattern is a metavariable")...
 -/
 
-@[simp]
-theorem cons_zero : (cons e s) 0 = e := rfl
+-- To prevent infinite loops.
+def var0 (σ) : Expr σ := .var 0
+def shift1 (σ) : Subst σ := shift σ 1
 
-@[simp]
-theorem cons_succ : (cons e s) (i + 1) = s i := rfl
+/-
+@[simp high]
+theorem eval_expand : s n = apply s (.var n) := by
+  rw [apply]
+-/
 
-/-- Normalise expanded `applyr`, `compr` and `upr`. -/
-@[simp]
-theorem shift_wrap_right : .var ∘ (. + i) = shift σ i := rfl
+@[simp high]
+theorem single_expand : single n e = up n (cons e (id σ)) := rfl
 
-/-- Normalise expanded `applyr`, `compr` and `upr`. -/
-@[simp]
-theorem shift_wrap_left : .var ∘ (i + .) = shift σ i := by
-  apply funext; intros k; rw [Function.comp, Nat.add_comm]; rfl
+@[simp high]
+theorem var_expand : .var n = apply (shift σ n) (var0 σ) := by
+  rw [var0, apply, shift, Nat.zero_add]
 
-/-- Normalise `shift n` to either `shift 1` or `id`. -/
-@[simp]
+/-- Normalise `shift 0` to `id`. -/
+@[simp high]
 theorem shift_zero : shift σ 0 = id σ := by
   apply funext; intros i
   rw [id, shift]; rfl
 
-/-- This must be manually applied... -/
-theorem shift_succ : shift σ (i + 1) = comp (shift σ i) (shift σ 1) := by
-  apply funext; intros j; rw [shift, comp, shift, apply, shift, Nat.add_assoc]
+/-- Merge adjacent `shift` (we can then move `succ` out). -/
+@[simp high]
+theorem shift_comp_shift : comp (shift σ n) (shift σ m) = shift σ (n + m) := by
+  apply funext; intros i; rw [shift, comp, shift, apply, shift, Nat.add_assoc]
 
-/-- Normalise `shift n` to either `shift 1` or `id`. -/
-@[simp]
-theorem shift_succ_succ : shift σ (i + 1 + 1) = comp (shift σ (i + 1)) (shift σ 1) := by
-  apply funext; intros j; rw [shift_succ]
+/-- Expand `shift (n + 1)`. This will not cause infinite loop, but should have lower priority. -/
+@[simp low]
+theorem shift_succ : shift σ (n + 1) = comp (shift1 σ) (shift σ n) := by
+  apply funext; intros i
+  rw [comp, shift1, shift, shift, apply, shift, Nat.add_comm n 1, Nat.add_assoc]
 
-@[simp]
-theorem apply_var : apply s (.var i) = s i := by
-  rw [apply]
+/-- Expand `up 0` to nothing. -/
+@[simp high]
+theorem up_zero : (up 0 s) = s := rfl
 
-@[simp]
-theorem apply_binder : apply s (.binder e) = .binder (apply (cons (.var 0) (comp s (shift σ 1))) e) := by
-  rw [apply]
-  simp only [compr_def, shift_wrap_right, comp_def, up]
+/-- Merge adjacent `up` (we can then move `succ` out). -/
+@[simp high]
+theorem up_up : (up m (up n s)) = up (n + m) s := by
+  induction m with
+  | zero => rfl
+  | succ m ih => rw [up, Nat.add_succ, up, ih]
 
-@[simp]
-theorem apply_node : apply s (.node x es) = .node x (es.map (apply s)) := by
-  induction es with
-  | nil => rw [List.map, apply, apply.nested]
-  | cons h t ih => rw [List.map, apply, apply.nested] at *; congr 2; injection ih
+/-- Expand `up (n + 1)`. This will not cause infinite loop, but should have lower priority. -/
+@[simp low]
+theorem up_succ : (up (n + 1) s) = cons (var0 σ) (comp (up n s) (shift1 σ)) := by
+  rw [up, compr_def]; rfl
 
-@[simp]
+@[simp high]
 theorem id_apply : apply (id σ) e = e := by
   -- Induction on `e`.
   apply @Expr.recOn _
@@ -267,7 +322,20 @@ theorem id_apply : apply (id σ) e = e := by
         simp only [apply, apply.nested] at ih'
         injection ih'
 
-@[simp]
+@[simp high]
+theorem cons_apply : apply (cons e s) (var0 σ) = e := rfl
+
+@[simp high]
+theorem apply_binder : apply s (.binder e) = .binder (apply (up 1 s) e) := by
+  rw [apply]
+
+@[simp high]
+theorem apply_node : apply s (.node x es) = .node x (es.map (apply s)) := by
+  induction es with
+  | nil => rw [List.map, apply, apply.nested]
+  | cons h t ih => rw [List.map, apply, apply.nested] at *; congr 2; injection ih
+
+@[simp high]
 theorem apply_apply : apply t (apply s e) = apply (comp s t) e := by
   rw [comp_def]
   revert t s
@@ -294,32 +362,44 @@ theorem apply_apply : apply t (apply s e) = apply (comp s t) e := by
         simp only [apply, apply.nested] at ih'
         injection ih'
 
-@[simp]
+@[simp high]
 theorem id_comp : comp (id σ) s = s := by
   apply funext; intros i; rw [comp_def, Function.comp, id, apply]
 
-@[simp]
+@[simp high]
 theorem comp_id : comp s (id σ) = s := by
   apply funext; intros i; rw [comp_def, Function.comp, id_apply]
 
-@[simp]
-theorem shift_comp_cons : comp (shift σ 1) (cons e s) = s := by
-  apply funext; intros i; rw [comp_def, Function.comp, shift, apply]; rfl
+@[simp high]
+theorem shift_comp_cons : comp (shift1 σ) (cons e s) = s := by
+  apply funext; intros i; rw [comp_def, Function.comp, shift1, shift, apply]; rfl
 
-@[simp]
+@[simp high]
 theorem cons_comp : comp (cons e s) t = cons (apply t e) (comp s t) := by
   apply funext; intros i; rw [comp_def, Function.comp, comp_def]; cases i <;> rfl
 
-@[simp]
+@[simp high]
 theorem comp_assoc : comp (comp s t) u = comp s (comp t u) := by
   apply funext; intros i; simp only [comp_def, Function.comp, apply_apply]
 
-@[simp]
-theorem apply_zero_cons_shift_comp : cons (apply s (.var 0)) (comp (shift σ 1) s) = s := by
+@[simp high]
+theorem zero_cons_shift : cons (var0 σ) (shift1 σ) = id σ := by
   apply funext; intros i; cases i <;> rfl
 
-@[simp]
-theorem zero_cons_shift : cons (.var 0) (shift σ 1) = id σ := by
+@[simp high]
+theorem apply_zero_cons_shift_comp : cons (apply s (var0 σ)) (comp (shift1 σ) s) = s := by
   apply funext; intros i; cases i <;> rfl
+
+/-- Generalises `shift_comp_cons`. -/
+@[simp]
+theorem shift_succ_comp_cons : comp (shift1 σ) (comp (shift σ n) (cons e s)) = comp (shift σ n) s := by
+  rw [← comp_assoc, shift1, shift_comp_shift, Nat.add_comm, ← shift_comp_shift, comp_assoc, ← shift1, shift_comp_cons]
+
+/-
+example : apply (cons e s) (.var 0) = e := by simp
+example : apply (cons e s) (.var (i + 1)) = apply s (.var i) := by simp
+example : cons (apply (shift σ n) (var0 σ)) (shift σ (n + 1)) = shift σ n := by simp
+example : cons (apply (comp (shift σ n) s) (var0 σ)) (comp (shift σ (n + 1)) s) = comp (shift σ n) s := by simp
+-/
 
 end Leansubst.Subst
