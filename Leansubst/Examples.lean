@@ -1,4 +1,5 @@
 import Leansubst.Basic
+import Leansubst.Pointwise
 
 /-- A simple lambda calculus with custom variable substitution operation. -/
 inductive Term where
@@ -60,73 +61,61 @@ theorem to_expr_inj (s t : Term) : toExpr s = toExpr t → s = t := by
 
 /-!
 And that our own substitution function agrees with `Leansubst.Subst.apply`.
-This can be much more involved... Currently I don't know how to automate this.
+This can be done by using results from `Leansubst.Pointwise` (and keep unfolding definitions).
 -/
 
-theorem to_expr_shift (s : Term) (n m : Nat) :
-    toExpr (shift s n m) = Subst.apply (Subst.up n (Subst.shift _ m)) (toExpr s) := by
-  induction s generalizing n with
+theorem to_expr_shift (t : Term) (n m : Nat) :
+    toExpr (shift t n m) = Subst.apply (Subst.up n (Subst.shift Sig m)) (toExpr t) := by
+  rw [← Pointwise.shift_to_parallel]
+  induction t generalizing n with
   | var i =>
-    rw [shift]
-    split <;> simp only [toExpr, Subst.apply, Subst.apply.nested]
-    case inl h =>
-      have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
-      congr; simp only [Subst.shift, Subst.up_get_high, Subst.applyr_def, Subst.apply, Function.comp]
-      rw [Nat.add_comm n d, Nat.add_assoc, Nat.add_comm n m, Nat.add_assoc]
-    case inr h =>
-      congr; simp only [Subst.shift, Subst.up_get_low _ _ _ (Nat.lt_of_not_le h)]
+    simp only [toExpr, shift, Pointwise.shift]
+    split <;> (try split) <;> trivial
   | app l r ihl ihr =>
-    simp only [toExpr, Subst.apply, Subst.apply.nested]
-    congr; exacts [ihl _, ihr _]
+    simp only [toExpr, shift, Pointwise.shift, ihl, ihr]
+    simp only [Pointwise.shift, Pointwise.shift.nested]
   | lam x r ih =>
-    simp only [toExpr, Subst.apply, Subst.apply.nested]
-    congr; exacts [ih _]
+    simp only [toExpr, shift, Pointwise.shift, ih]
+    simp only [Pointwise.shift, Pointwise.shift.nested]
 
 theorem to_expr_subst (s t : Term) (n : Nat) :
-    toExpr (subst s n t) = Subst.apply (Subst.single n (toExpr t)) (toExpr s) := by
+    toExpr (subst s n t) = Subst.apply (Subst.pointwise n (toExpr t)) (toExpr s) := by
+  rw [← Pointwise.subst_to_parallel]
   induction s generalizing n with
   | var i =>
-    rw [subst]
-    split <;> (try split) <;> simp only [subst, toExpr, Subst.single, Subst.apply, Subst.apply.nested]
-    case inl h =>
-      congr
-      cases i with
-      | zero => contradiction
-      | succ i =>
-        have ⟨d, hd⟩ := Nat.le.dest (Nat.le_of_lt_succ h); subst hd; clear h
-        rw [← Nat.add_succ, Subst.up_get_high, Subst.var_expand, Subst.applyr_def]
-        rw [Nat.add_succ, Nat.pred_succ, Subst.cons]; simp only
-        rw [Subst.id, Subst.apply, Function.comp, Subst.var_expand, Nat.add_comm]
-    case inr.inl h₁ h₂ =>
-      subst h₂; clear h₁
-      conv => rhs; rhs; rw [← Nat.add_zero n]
-      rw [Subst.up_get_high, to_expr_shift, Subst.up]; simp; rfl
-    case inr.inr h₁ h₂ =>
-      have h := Nat.lt_of_le_of_ne (Nat.le_of_not_lt h₁) (Ne.symm h₂); clear h₁ h₂
-      rw [Subst.up_get_low _ _ _ h]
+    simp only [toExpr, subst, Pointwise.subst]
+    split <;> (try split) <;> try trivial
+    rw [to_expr_shift, Pointwise.shift_to_parallel]
   | app l r ihl ihr =>
-    simp only [subst, toExpr, Subst.single, Subst.apply, Subst.apply.nested]
-    congr; exacts [ihl _, ihr _]
+    simp only [toExpr, subst, Pointwise.subst, ihl, ihr]
+    simp only [Pointwise.subst, Pointwise.subst.nested]
   | lam x r ih =>
-    simp only [subst, toExpr, Subst.single, Subst.apply, Subst.apply.nested]
-    congr; exacts [ih _]
+    simp only [toExpr, subst, Pointwise.subst, ih]
+    simp only [Pointwise.subst, Pointwise.subst.nested]
 
 /-!
 Now we are finally ready to go!
 -/
 
+/-- Make it look better... -/
 local notation t " ⟦" n:80 " ↟ " m:79 "⟧"  => shift t n m
 local notation t " ⟦" n:80 " ↦ " t':79 "⟧" => subst t n t'
 
-/-- Make it look better... -/
+/-!
+Currently, Leansubst does not implement any tactics.
+You may start by copying the implementations below, and add your own enhancements later.
+-/
+
 syntax "leansubst" : tactic
 syntax "tidysubst" : tactic
 
 macro_rules
-  -- This expands everything to normal form.
+
+  -- This tries to expand everything to normal form.
   | `(tactic| leansubst) => `(tactic|
     simp only [toExpr, to_expr_shift, to_expr_subst];
     simp [Nat.add_zero, Nat.zero_add, Nat.add_succ, Nat.succ_add])
+
   -- This restores you some sanity (hopefully...) in case anything stucks.
   | `(tactic| tidysubst) => `(tactic|
     simp only [Subst.var0, Subst.shift1, Subst.shift_comp_shift, Subst.up_up];
@@ -138,8 +127,8 @@ macro_rules
 example (s) :
     .lam "x" (.app (.var 0) (.var 3)) ⟦2 ↦ s⟧ =
     .lam "x" (.app (.var 0) (s ⟦0 ↟ 3⟧)) := by
-  apply to_expr_inj
-  leansubst
+  apply to_expr_inj -- Start by turning the problem into one that Leansubst can recognise.
+  leansubst         -- Normalise!
 
 -- A non-working example.
 example (s n) :

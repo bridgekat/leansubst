@@ -79,17 +79,16 @@ where nested : Subst σ → List (Expr σ) → List (Expr σ)
 def comp : Subst σ → Subst σ → Subst σ :=
   fun s t i => apply t (s i)
 
-/-- Composition of substitutions follows the expected definition. -/
-theorem comp_def (s t : Subst σ) : comp s t = apply t ∘ s := rfl
-
-/-- Single-point substitution (for reference). This also drops variables by one. -/
-def single : Nat → Expr σ → Subst σ :=
+/-- Pointwise substitution (for reference). -/
+def pointwise : Nat → Expr σ → Subst σ :=
   fun i e => up i (cons e (id σ))
 
 end Subst
 
 /-!
 Now define expressions *with* explicit substitutions and "metavariables".
+
+**This part is currently unused.**
 -/
 
 mutual

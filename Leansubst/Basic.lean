@@ -62,7 +62,7 @@ theorem applyr_applyr (s r) : applyr r (applyr s e) = applyr (r ∘ s) e := by
 
 /-- `applyr` agrees with `apply` for renamings. -/
 @[simp high]
-theorem applyr_def (r) : @applyr σ r = apply (.var ∘ r) := by
+theorem applyr_to_apply (r) : @applyr σ r = apply (.var ∘ r) := by
   apply funext; intros e; revert r
   -- Induction on `e`.
   let motive := fun (e : Expr σ) => ∀ r, applyr r e = apply (.var ∘ r) e
@@ -89,9 +89,9 @@ theorem applyr_def (r) : @applyr σ r = apply (.var ∘ r) := by
 
 /-- `compr` agrees with `comp` for renamings. -/
 @[simp high]
-theorem compr_def (s r) : @compr σ s r = comp s (.var ∘ r) := by
+theorem compr_to_comp (s r) : @compr σ s r = comp s (.var ∘ r) := by
   apply funext; intros i
-  rw [compr, comp, applyr_def]
+  rw [compr, comp, applyr_to_apply]
 
 /-- Accessing higher entries of `upr`. -/
 theorem upr_get_high (r) : upr i r (i + j) = r j + i := by
@@ -150,7 +150,7 @@ theorem up_get_low (h : j < i) : (up i s) j = .var j := by
 
 /-- `upr` agrees with `up` for renamings. -/
 @[simp high]
-theorem upr_def (r) : .var ∘ upr i r = @up σ i (.var ∘ r) := by
+theorem upr_to_up (r) : .var ∘ upr i r = @up σ i (.var ∘ r) := by
   apply funext; intros j
   cases Nat.lt_sum_ge j i with
   | inl h => rw [Function.comp, upr_get_low _ _ _ h, up_get_low _ _ _ h]
@@ -229,7 +229,7 @@ assignment" for two any expressions with different normal forms).
 > [[2]](https://www.ps.uni-saarland.de/Publications/documents/SchaeferEtAl_2015_Completeness.pdf)
 > has suggested using a proper *algorithm* instead of *rewriting* to avoid such difficulty.
 
-In this project I choose to normalise `upr`, `applyr`, `compr`, function application (*), `single` and `var n`
+In this project I choose to normalise `upr`, `applyr`, `compr`, function application (*), `pointwise` and `var n`
 (to `apply (shift n) (var 0)`) first; the remaining extensions which need to be handled are
 `shift n` and `up n s`. The handling has to be more-or-less heuristic:
 
@@ -256,7 +256,7 @@ theorem eval_expand : s n = apply s (.var n) := by
 -/
 
 @[simp high]
-theorem single_expand : single n e = up n (cons e (id σ)) := rfl
+theorem pointwise_expand : pointwise n e = up n (cons e (id σ)) := rfl
 
 @[simp high]
 theorem var_expand : .var n = apply (shift σ n) (var0 σ) := by
@@ -293,7 +293,7 @@ theorem up_up : (up m (up n s)) = up (n + m) s := by
 /-- Expand `up (n + 1)`. This will not cause infinite loop, but should have lower priority. -/
 @[simp low]
 theorem up_succ : (up (n + 1) s) = cons (var0 σ) (comp (up n s) (shift1 σ)) := by
-  rw [up, compr_def]; rfl
+  rw [up, compr_to_comp]; rfl
 
 @[simp high]
 theorem id_apply : apply (id σ) e = e := by
@@ -337,7 +337,6 @@ theorem apply_node : apply s (.node x es) = .node x (es.map (apply s)) := by
 
 @[simp high]
 theorem apply_apply : apply t (apply s e) = apply (comp s t) e := by
-  rw [comp_def]
   revert t s
   -- Induction on `e`.
   let motive := fun (e : Expr σ) => ∀ s t, @apply σ t (apply s e) = (apply (apply t ∘ s)) e
@@ -364,23 +363,23 @@ theorem apply_apply : apply t (apply s e) = apply (comp s t) e := by
 
 @[simp high]
 theorem id_comp : comp (id σ) s = s := by
-  apply funext; intros i; rw [comp_def, Function.comp, id, apply]
+  apply funext; intros i; rw [comp, id, apply]
 
 @[simp high]
 theorem comp_id : comp s (id σ) = s := by
-  apply funext; intros i; rw [comp_def, Function.comp, id_apply]
+  apply funext; intros i; rw [comp, id_apply]
 
 @[simp high]
 theorem shift_comp_cons : comp (shift1 σ) (cons e s) = s := by
-  apply funext; intros i; rw [comp_def, Function.comp, shift1, shift, apply]; rfl
+  apply funext; intros i; rw [comp, shift1, shift, apply]; rfl
 
 @[simp high]
 theorem cons_comp : comp (cons e s) t = cons (apply t e) (comp s t) := by
-  apply funext; intros i; rw [comp_def, Function.comp, comp_def]; cases i <;> rfl
+  apply funext; intros i; rw [comp]; cases i <;> rfl
 
 @[simp high]
 theorem comp_assoc : comp (comp s t) u = comp s (comp t u) := by
-  apply funext; intros i; simp only [comp_def, Function.comp, apply_apply]
+  apply funext; intros i; simp only [comp, apply_apply]
 
 @[simp high]
 theorem zero_cons_shift : cons (var0 σ) (shift1 σ) = id σ := by
