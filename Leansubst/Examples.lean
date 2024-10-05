@@ -48,14 +48,14 @@ This should be trivial (simply keep applying `injection`s).
 theorem to_expr_inj (s t : Term) : toExpr s = toExpr t → s = t := by
   induction s generalizing t with
   | var i =>
-    cases t <;> intros <;> try injections
+    cases t <;> intros <;> (try injections)
     rename_i h; rw [h]
   | app l r ihl ihr =>
-    cases t <;> intros <;> try injections
+    cases t <;> intros <;> (try injections)
     rename_i l' r' h; injection h with _ h; injections h₁ _ h₂ _
-    congr; exacts [ihl _ h₁, ihr _ h₂]
+    congr; exact ihl _ h₁; exact ihr _ h₂
   | lam x r ih =>
-    cases t <;> intros <;> try injections
+    cases t <;> intros <;> (try injections)
     rename_i x' r' h; injection h with _ h; injections h₁ _ _ h₂
     congr; exact ih _ h₂
 
@@ -84,7 +84,7 @@ theorem to_expr_subst (s t : Term) (n : Nat) :
   induction s generalizing n with
   | var i =>
     simp only [toExpr, subst, Pointwise.subst]
-    split <;> (try split) <;> try trivial
+    split <;> (try split) <;> (try trivial)
     rw [to_expr_shift, Pointwise.shift_to_parallel]
   | app l r ihl ihr =>
     simp only [toExpr, subst, Pointwise.subst, ihl, ihr]
@@ -107,21 +107,21 @@ You may start by copying the implementations below, and add your own enhancement
 -/
 
 syntax "leansubst" : tactic
-syntax "tidysubst" : tactic
+syntax "leansubst_tidy" : tactic
 
 macro_rules
 
   -- This tries to expand everything to normal form.
   | `(tactic| leansubst) => `(tactic|
-    simp only [toExpr, to_expr_shift, to_expr_subst];
-    simp [Nat.add_zero, Nat.zero_add, Nat.add_succ, Nat.succ_add])
+    (try simp only [toExpr, to_expr_shift, to_expr_subst]);
+    (try simp))
 
   -- This restores you some sanity (hopefully...) in case anything stucks.
-  | `(tactic| tidysubst) => `(tactic|
-    simp only [Subst.var0, Subst.shift1, Subst.shift_comp_shift, Subst.up_up];
-    simp only [← Subst.var_expand, ← Subst.comp_assoc];
-    simp only [← Subst.apply_apply];
-    simp only [Subst.apply, Subst.id, Subst.shift, Subst.cons, Subst.up])
+  | `(tactic| leansubst_tidy) => `(tactic|
+    (try simp only [Subst.var0, Subst.shift1, Subst.shift_comp_shift, Subst.up_up]);
+    (try simp only [← Subst.var_expand, ← Subst.comp_assoc]);
+    (try simp only [← Subst.apply_apply]);
+    (try simp only [Subst.apply, Subst.id, Subst.shift, Subst.cons, Subst.up]))
 
 -- A working example.
 example (s) :
@@ -135,20 +135,9 @@ example (s n) :
     .lam "x" (.app (.var 0) (.var (n + 3))) ⟦(n + 2) ↦ s⟧ =
     .lam "x" (.app (.var 0) (s ⟦0 ↟ (n + 3)⟧)) := by
   apply to_expr_inj
-  leansubst; tidysubst
+  leansubst; leansubst_tidy
   -- Stuck at `up n`; requires manual proof of inequality.
   rw [Nat.add_comm 0 n, Subst.up_get_high]
-  leansubst; tidysubst
-  -- Stuck; requires manual conversion of renaming functions to `shift`.
-  have h : (fun i => Expr.var (0 + (1 + (1 + (1 + i))))) = Subst.shift Sig 3 :=
-    funext $ fun i => by simp only [Nat.zero_add, Nat.one_add, Subst.shift]
-  rw [h]; clear h
-  have h : Expr.var ∘ (fun x => x + n) = Subst.shift Sig n := rfl
-  rw [h]; clear h
-  have h : (fun i => Expr.var (0 + (1 + (1 + (1 + (i + n)))))) = Subst.shift Sig (n + 3) :=
-    funext $ fun i => by simp only [Nat.zero_add, Nat.one_add, Subst.shift, Nat.add_succ]
-  rw [h]; clear h
-  leansubst; tidysubst
+  leansubst; leansubst_tidy
   -- Stuck; requires manual proof of equality.
-  congr
-  apply funext; intros i; rw [Nat.add_comm n, Nat.add_assoc, Nat.add_assoc]
+  rw [Nat.add_comm n, Nat.add_assoc, Nat.add_assoc]

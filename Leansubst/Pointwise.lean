@@ -47,10 +47,11 @@ theorem shift_to_parallel (n m) : shift n m = Subst.apply (Subst.up n (Subst.shi
   case var i =>
     rw [shift, Subst.apply]
     split
-    case inl h =>
+    case isTrue h =>
       have ⟨d, hd⟩ := Nat.le.dest h; subst hd; clear h
-      rw [Subst.up_get_high, Subst.shift, Subst.applyr, Nat.add_assoc, Nat.add_comm, Nat.add_assoc]
-    case inr h =>
+      rw [Subst.up_get_high_applyr, Subst.shift, Subst.applyr]
+      rw [Nat.add_assoc, Nat.add_comm, Nat.add_assoc]
+    case isFalse h =>
       have h' := Nat.lt_of_not_le h; clear h
       rw [Subst.up_get_low]; exact h'
   case binder e ih => rw [shift, Subst.apply, Subst.up_up, ih]
@@ -63,7 +64,6 @@ theorem shift_to_parallel (n m) : shift n m = Subst.apply (Subst.up n (Subst.shi
       congr 2
       . exact ih.left _ _
       . specialize ih' ih.right
-        simp only [shift, shift.nested, Subst.apply, Subst.apply.nested] at ih'
         injection ih'
 
 /-- `Pointwise.subst n t` agrees with `Subst.apply (Subst.pointwise n t)`. -/
@@ -77,18 +77,19 @@ theorem subst_to_parallel (n t) : @subst σ n t = Subst.apply (Subst.pointwise n
   case var i =>
     rw [subst, Subst.pointwise, Subst.id, Subst.apply]
     split <;> try split
-    case inl h =>
+    case isTrue h =>
       cases i with
       | zero => contradiction
       | succ i =>
         have h' := Nat.le_of_lt_succ h; clear h
         have ⟨d, hd⟩ := Nat.le.dest h'; subst hd; clear h'
-        rw [Nat.pred_succ, ← Nat.add_succ, Subst.up_get_high, Subst.cons, Subst.applyr, Nat.add_comm]
-    case inr.inl h₁ h₂ =>
+        rw [Nat.pred_succ, Nat.add_one, ← Nat.add_succ]
+        rw [Subst.up_get_high_applyr, Subst.cons, Subst.applyr, Nat.add_comm]
+    case isFalse.isTrue h₁ h₂ =>
       subst h₂; clear h₁
       conv => rhs; rhs; rw [← Nat.add_zero n]
-      rw [Subst.up_get_high, Subst.cons, Subst.applyr_to_apply, shift_to_parallel 0]; rfl
-    case inr.inr h₁ h₂ =>
+      rw [Subst.up_get_high_applyr, Subst.cons, Subst.applyr_to_apply, shift_to_parallel 0]; rfl
+    case isFalse.isFalse h₁ h₂ =>
       have h := Nat.lt_of_le_of_ne (Nat.le_of_not_lt h₁) (Ne.symm h₂); clear h₁ h₂
       rw [Subst.up_get_low]; exact h
   case binder e ih => rw [subst, Subst.apply, ih]; rfl
@@ -101,7 +102,6 @@ theorem subst_to_parallel (n t) : @subst σ n t = Subst.apply (Subst.pointwise n
       congr 2
       . exact ih.left _ _
       . specialize ih' ih.right
-        simp only [subst, subst.nested, Subst.apply, Subst.apply.nested] at ih'
         injection ih'
 
 end Leansubst.Pointwise

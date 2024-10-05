@@ -1,6 +1,3 @@
-import Std.Data.Nat.Basic
-import Std.Tactic.Basic
-
 /-!
 This file contains definitions of:
 
