@@ -9,7 +9,7 @@ Given:
 
 the `@[simp]` lemmas supplied by Leansubst will be able to automatically prove some simple facts about substitutions.
 
-> ⚠ This is still in very early stage and is definitely not as feature-complete as [Autosubst](https://github.com/coq-community/autosubst/). Rough implementation details can be seen everywhere. Renamings are not specially handled. Normalisation involving `shift`s and `up`s can get halfway stuck.
+> ⚠ This is **mostly a toy project now**, definitely not as feature-complete as [Autosubst](https://github.com/coq-community/autosubst/). Rough implementation details can be seen everywhere. Renamings are not specially handled. Normalisation involving `shift`s and `up`s can get halfway stuck.
 
 ## Installation
 
